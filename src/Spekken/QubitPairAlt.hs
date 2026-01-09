@@ -1,0 +1,1 @@
+module Spekken.QubitPairAlt where
