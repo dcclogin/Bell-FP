@@ -1,0 +1,600 @@
+\documentclass[manuscript,review,anonymous,timestamp,acmthm,urlbreakonhyphens,acmsmall]{acmart} %% 25 pages
+
+\usepackage{graphicx} % Required for inserting images
+\usepackage{amsmath}
+\usepackage[english]{babel}
+\usepackage{amsthm}
+\usepackage{braket}
+\usepackage{tikz}
+\usepackage{tikz-cd}
+\usepackage{tikz-3dplot}
+\usepackage{epigraph} 
+\usepackage{comment}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage[most]{tcolorbox}
+\usepackage{minted}
+\setminted{mathescape, escapeinside=||}
+
+\renewcommand\qedsymbol{$\blacksquare$}
+\newcommand\flowsfroma{\mathrel{\vcenter{\hbox{\rotatebox{180}{$\leadsto$}}}}}
+\newcommand\flowsfromb{\mathrel{\reflectbox{$\leadsto$}}}
+\newcommand{\hc}[1]{\mintinline{haskell}{#1}}
+
+\bibliographystyle{ACM-Reference-Format}
+\citestyle{acmnumeric}
+
+\newtheorem{remark}{Remark}
+
+\title{Functional Pearl: \\
+  Bell Inequalities for Functional Programmers}
+\author{Chenchao Ding}
+\orcid{0000-0000-0000-0000}
+\email{cd17@iu.edu}
+\author{Amr Sabry}
+\orcid{0000-0002-1025-7331}
+\email{sabry@iu.edu}
+\affiliation{Indiana University}
+
+\begin{abstract}
+  \ldots
+\end{abstract}
+
+\begin{document}
+\maketitle 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Introduction}
+
+Bell’s theorem and the associated Bell experiment form one of the most
+striking separations between classical and quantum information.  In
+his seminal 1964 paper, Bell~\cite{Bell1964} showed that no theory
+satisfying a natural \emph{locality assumption} can reproduce all of
+the correlations predicted by quantum mechanics.  This abstract
+separation was soon turned into a concrete experimental challenge by
+Clauser, Horne, Shimony, and Holt~\cite{CHSH1969}, who reformulated
+Bell’s argument as an operational inequality (now called the CHSH
+inequality) suitable for laboratory tests.  A sequence of increasingly
+refined experiments, most notably those of Aspect, Grangier, and
+Roger~\cite{Aspect1982} in the early 1980s, and culminating in
+loophole-free tests by Hensen et al.~\cite{Hensen2015}, have since
+confirmed these non-classical correlations beyond reasonable doubt.
+The Nobel Prize in Physics 2022 was awarded to Alain Aspect, John
+F. Clauser, and Anton Zeilinger ``for experiments with entangled
+photons, establishing the violation of Bell inequalities and
+pioneering quantum information science.''
+
+The experimental setup underlying Bell’s theorem, as captured by the
+CHSH inequality, can be described in simple operational terms.  We are
+given two black boxes.  For the moment, we model each box as a
+function of type \hc{Bool -> Bool}.  Intuitively, the input represents
+an experimental setting, and the output represents the observed
+outcome.  We do not know how a black box is implemented internally;
+all we can do is observe its input-output behavior.  Since the black
+box is represented as a function, observation amounts to function
+application:
+
+\begin{minted}{haskell}
+type BB = Bool -> Bool 
+
+observe :: BB -> Bool -> Bool
+observe bb b = bb b
+\end{minted}
+
+We are interested in correlations between two such boxes.  Given a pair
+of boxes and one input for each, we record whether their outputs agree
+or disagree.  Agreement is assigned a score of \(+1\), and disagreement
+a score of \(-1\):
+
+\begin{minted}{haskell}
+scoreRun :: (BB,BB) -> (Bool,Bool) -> Int
+scoreRun (bb1,bb2) (b1,b2) =
+  if observe bb1 b1 == observe bb2 b2 then 1 else -1
+\end{minted}
+
+The CHSH experiment aggregates these correlations across the four
+possible input pairs.  The sign pattern is chosen so that achieving the
+algebraic maximum \(4\) requires a very specific behavior: agreement on
+three inputs and disagreement on the fourth.
+
+\begin{minted}{haskell}
+chsh :: (BB, BB) -> Int
+chsh bbs =
+      scoreRun bbs (False,False)
+  +   scoreRun bbs (False,True)
+  +   scoreRun bbs (True,False)
+  -   scoreRun bbs (True,True)
+\end{minted}
+
+With the interface \hc{BB = Bool -> Bool}, each black box is a
+deterministic Boolean function on a single input bit.  Such a function
+is completely determined by its outputs on \hc{False} and \hc{True}, so
+there are exactly \(2^2=4\) possible black boxes.
+
+In this purely functional model, the CHSH score is always bounded by
+\(2\).  The reason is simple: if the boxes agree on the first three
+input pairs in \hc{chsh}, then they are forced to agree on the fourth
+as well.  Thus the ``three agreements and one disagreement'' pattern
+needed to reach \(4\) cannot occur.  The best achievable value is
+\(1+1+1-1=2\), and similarly the worst is \(-2\).
+
+This conclusion is strikingly at odds with both quantum mechanics and
+experiment, which exhibit correlations attaining the larger value
+\(2\sqrt{2}\).  Evidently, modeling black boxes as pure functions is
+too restrictive.
+
+At the other extreme, if we allow the two boxes to communicate during
+evaluation, then the CHSH task becomes trivial.  For instance, suppose
+the boxes share a mutable cell, so that the first box can write its
+input and the second box can read it.  Then the second box can
+deliberately enforce the winning CHSH pattern: agree on the three
+positively weighted input pairs and disagree on the fourth.  This
+immediately yields the algebraic maximum \(4\).
+
+This illustrates why Bell experiments insist on a locality constraint.
+The physical assumption is that the two boxes are spacelike separated:
+once prepared, they are not allowed to communicate.  In
+programming-language terms, this rules out direct message passing,
+shared mutable state, or any other mechanism by which one box could
+influence the other during evaluation.
+
+We are therefore looking for a semantic middle ground.  We want to
+enlarge the space of admissible black boxes beyond pure functions so as
+to account for the observed value \(2\sqrt{2}\), while still enforcing a
+meaningful notion of locality.
+
+A natural next step is to allow black boxes to be effectful.  A box
+might flip coins, consult shared randomness fixed at preparation time,
+or interact with a read-only environment.  These behaviors are familiar
+from programming-language semantics and can be modeled uniformly using
+monads.  Accordingly, we generalize the type of black boxes to
+\hc{BB m = Bool -> m Bool}:
+
+\begin{minted}{haskell}
+type BB m = Bool -> m Bool
+\end{minted}
+
+This raises a further question: what does locality mean for effectful
+black boxes?  Given \hc{bb1 :: BB m} and \hc{bb2 :: BB m}, and a pair of
+inputs \hc{(b1,b2)}, we can always form a joint experiment of type
+\hc{m (Bool,Bool)}.  One formalization of locality is Bell’s
+\emph{factorization} principle: once we condition on whatever was fixed
+at preparation time, the two outputs are generated independently.  In
+programming-language terms, this corresponds to combining effects via
+the canonical applicative pairing:
+
+\begin{minted}{haskell}
+eval (bb1,bb2) (b1,b2) = liftA2 (,) (bb1 b1) (bb2 b2)
+\end{minted}
+
+When the effect \hc{m} is the distribution monad, this equation
+specializes to Bell’s factorization condition:
+\[
+p(a,b \mid b_1,b_2,\lambda)
+=
+p(a \mid b_1,\lambda)\,p(b \mid b_2,\lambda),
+\]
+where mixing over \(\lambda\) corresponds to averaging over different
+preparations.
+
+Bell’s theorem implies that (under the usual assumptions, in particular
+that preparation is independent of the later choice of inputs) any
+factorizing model is bounded by \(2\).  To reach \(2\sqrt{2}\), one must
+relax something.  Crucially, one can relax factorization \emph{without}
+allowing communication: quantum correlations violate Bell factorization
+while still obeying the weaker no-signalling principle.
+
+Operationally, this means that the evaluation function \hc{eval} cannot
+always be the canonical applicative pairing of the two local effects.
+In the rest of the paper, we make this precise by giving an operational
+semantics parameterized by an effect, and by isolating the exact point
+where classical applicative factorization must be replaced by a more
+delicate composition principle.
+
+%=======================================================
+\section{Locality assumptions as algebraic laws}
+\label{sec:locality-laws}
+
+The discussion in the introduction highlights three distinct regimes.
+If we model each black box as a pure function, then the CHSH score is
+bounded by \(2\).  If, on the other hand, we allow unrestricted
+interaction between the two boxes during evaluation, then the algebraic
+maximum \(4\) becomes trivial to achieve.  Quantum correlations sit
+strictly between these extremes: they exceed \(2\) while still obeying a
+meaningful notion of locality.
+
+In the literature on Bell’s theorem, several formal locality principles
+are commonly used to express what ``no communication'' should mean.
+Although these principles are usually stated in probabilistic language,
+they can be formulated more generally as algebraic constraints on an
+operational semantics.  The purpose of this section is to collect these
+assumptions in a uniform form and to show how each can be represented as
+an equation over a suitable effect.
+
+\subsection{A monadic interface for black boxes}
+
+We fix a type \(\Lambda\) of hidden variables (or \emph{ontic states}).
+A preparation procedure samples a value of type \(\Lambda\), and the two
+boxes are then evaluated relative to that value.  We model the local
+behavior of a box using a monadic effect \(m\), allowing each box to be
+probabilistic, nondeterministic, or otherwise effectful.
+
+\begin{minted}{haskell}
+type BB m = Bool -> Reader Lambda (m Bool)
+\end{minted}
+
+Intuitively, the \hc{Reader Lambda} layer represents whatever was fixed
+at preparation time, while the effect \(m\) represents the remaining
+local behavior (for example, probabilistic choice).
+
+Given two boxes and a pair of settings, we can always form a joint
+experiment producing a pair of outcomes:
+\begin{minted}{haskell}
+type Joint m = (BB m, BB m) -> (Bool,Bool) -> Reader Lambda (m (Bool,Bool))
+\end{minted}
+
+Different notions of locality correspond to different laws satisfied by
+the joint evaluator.
+
+\subsection{Canonical factorization and Bell locality}
+
+The simplest joint evaluator combines the two local computations
+independently.  In programming-language terms this is just applicative
+pairing:
+
+\begin{minted}{haskell}
+evalA :: Applicative m => Joint m
+evalA (bb1,bb2) (b1,b2) = liftA2 (,) (bb1 b1) (bb2 b2)
+\end{minted}
+
+When \(m\) is the distribution monad, \hc{evalA} expresses Bell’s
+factorization condition:
+\[
+p(a,b \mid b_1,b_2,\lambda)
+=
+p(a \mid b_1,\lambda)\,p(b \mid b_2,\lambda).
+\]
+Bell’s theorem implies that any model satisfying this factorization,
+together with the usual independence assumptions about preparation and
+settings, has CHSH score bounded by \(2\).
+
+\subsection{Locality principles}
+
+We now collect the standard locality principles and express each as an
+equation or constraint on an evaluator \hc{eval :: Joint m}.  When
+\(m\) is probabilistic, these principles reduce to their usual
+probabilistic formulations.
+
+\paragraph{Single-valuedness.}
+Single-valuedness says that, for fixed \(\lambda\) and a fixed setting,
+a box produces a definite outcome rather than a nontrivial distribution.
+Equivalently, each local computation is observationally equal to a
+\hc{pure} value.  Writing \(\approx\) for observational equivalence in
+the effect \(m\), we require:
+\[
+\forall\,bb, b.\;\;\exists\,v \in \{0,1\}.\;\; bb\,b \approx \texttt{pure}\;v.
+\]
+For the distribution monad, this says that the conditional distribution
+is a Dirac measure.
+
+\emph{Representative effect.}  \hc{Identity} (or Dirac distributions
+inside a probabilistic monad).
+
+\paragraph{Strong determinism.}
+Strong determinism is single-valuedness together with strict locality of
+dependence: each output is determined by its own setting and the shared
+\(\lambda\).  In our interface this is captured by taking \(m\) to be
+pure:
+\[
+\texttt{BB Identity} \;\cong\; \texttt{Bool -> Reader Lambda Bool}.
+\]
+
+\emph{Representative effect.}  \hc{Reader Lambda} (pure computation).
+
+\paragraph{Weak determinism.}
+Weak determinism does not demand such a strong separation.  It only
+requires that, for fixed \(\lambda\), the \emph{pair} of outputs is
+determined by the \emph{pair} of settings.  This allows the joint
+behavior to depend on both settings without requiring a factorization
+into two independent local response functions.  Equationally, weak
+determinism says that the joint experiment is single-valued:
+\[
+\forall\,bb_1,bb_2,b_1,b_2.\;\;\exists\,v.\;\;
+\texttt{eval (bb1,bb2) (b1,b2)} \approx \texttt{pure}\;v.
+\]
+
+\emph{Representative effect.}  \hc{Reader Lambda} with a pure joint
+\hc{eval}, without requiring \hc{eval = evalA}.
+
+\paragraph{Outcome independence.}
+Outcome independence says that, for fixed \(\lambda\) and settings, the
+two outcomes are produced independently.  In our semantics this is
+exactly the requirement that the joint evaluator factorizes through the
+canonical applicative pairing:
+\[
+\texttt{eval} \;=\; \texttt{evalA}.
+\]
+For probabilistic \(m\), this is precisely the statement that the joint
+distribution is the product of the two local distributions (for fixed
+\(\lambda\)).
+
+\emph{Representative effect.}  The distribution monad with applicative
+pairing.
+
+\paragraph{Parameter independence.}
+Parameter independence says that, once \(\lambda\) is fixed, the
+distribution of Alice’s outcome does not depend on Bob’s setting, and
+vice versa.  Using observational equivalence \(\approx\), we express this
+as the pair of constraints
+\[
+\texttt{fmap fst (eval (bb1,bb2) (b1,b2))}
+\approx
+\texttt{fmap fst (eval (bb1,bb2) (b1,b2'))},
+\]
+\[
+\texttt{fmap snd (eval (bb1,bb2) (b1,b2))}
+\approx
+\texttt{fmap snd (eval (bb1,bb2) (b1',b2))},
+\]
+for all settings \(b_1,b_1',b_2,b_2'\).  When \(m\) is probabilistic,
+these are exactly the usual no-signalling equalities for the marginals.
+
+\emph{Representative effect.}  A probabilistic effect equipped with a
+no-signalling joint \hc{eval}.  Quantum correlations satisfy parameter
+independence while violating outcome independence.
+
+\paragraph{\(\lambda\)-independence (measurement independence).}
+Finally, \(\lambda\)-independence is an assumption about preparation.  It
+says that the hidden variable generated at preparation time is
+independent of the later choice of settings.  In probabilistic terms,
+this is the familiar condition \(p(\lambda \mid b_1,b_2)=p(\lambda)\).
+
+In our semantics, \(\lambda\)-independence is enforced by staging: the
+preparation procedure \hc{prep} runs before either box is given its
+input, and the settings do not influence \hc{prep}.  The overall
+experiment therefore has the shape
+\[
+\texttt{prep >>= \textbackslash lam -> runReader (eval (bb1,bb2) (b1,b2)) lam}.
+\]
+
+\emph{Representative effect.}  \hc{prep :: Dist Lambda} together with
+\hc{Reader Lambda} for evaluation.
+
+\subsection{From Bell locality to intermediate notions}
+
+The classical local hidden-variable picture corresponds to
+\(\lambda\)-independence together with outcome independence and
+typically strong determinism.  Under these assumptions, the CHSH score
+is bounded by \(2\).  At the opposite extreme, allowing general
+interaction between the two local computations breaks parameter
+independence and makes it easy to reach the algebraic maximum \(4\).
+
+Quantum correlations sit in between.  They preserve parameter
+independence (no signalling) but violate outcome independence
+(factorization).  Operationally, this means that a semantics capable of
+modeling quantum behavior must provide a joint evaluator \hc{eval} that
+cannot be reduced to the canonical applicative pairing \hc{evalA}, while
+still satisfying the no-signalling constraints above.
+
+In the remainder of the paper we develop a semantics parameterized by an
+effect, and we isolate the precise point at which classical applicative
+factorization must be replaced by a more delicate composition principle.
+
+%Need to discuss: outcome independence; weak determinism; strong
+%determinism; parameter independence; $\lambda$-independence; and
+%single valuedness; represent each by equations on a monad and find representative monad 
+
+%=======================================================
+\section{Empirical Model}
+%=======================================================
+Suppose there are two experimenters, Alice ($\textcolor{Bittersweet}{A}$) and Bob ($\textcolor{RoyalBlue}{B}$), each measuring a particle of a system. Both $A$ and $B$ have their own choices of measurements denoted as $I_A,I_B$, from which they can freely pick one to perform, and the associated sets of outcomes are denoted as $O_A, O_B$ respectively. Specifically, the Bell configuration~\cite{Bell1964} we adopt is the following one:
+\begin{align*}
+    \{A_1, A_2, A_3\} = I_A \ni \textcolor{Bittersweet}{A_i \mapsto a} \in O_A = \{\texttt{true}, \texttt{false}\},\\
+    \{B_1, B_2, B_3\} = I_B \ni \textcolor{RoyalBlue}{B_j \mapsto b} \in O_B = \{\texttt{true}, \texttt{false}\},
+\end{align*}
+where $i,j\in\{1,2,3\}=I$ are indices. An \emph{empirical event} is represented as
+\begin{align*}
+    (A_i, B_j, a, b) \in  I_A \times I_B \times O_A \times O_B = \Psi. 
+\end{align*}
+
+Intuitively, an event is the abstraction of a “trial” in the experiment, where each part performs exactly one measurement upon a state of the system.
+
+\begin{definition}
+    An \emph{empirical model} is a pair $(\Psi, q)$ where $q$ is a probability measure on the event space $\Psi$~\footnote{The notations are modified from \cite{brandenburger_2008classification}.}, with
+    \begin{align*}
+        q( \textcolor{Bittersweet}{A_i \mapsto a} ) &\doteq q(a | A_i), \\
+        q( \textcolor{RoyalBlue}{B_j \mapsto b}   ) &\doteq q(b|B_j), \\
+        q( \textcolor{Bittersweet}{A_i \mapsto a} \land \textcolor{RoyalBlue}{B_j \mapsto b} ) &\doteq q(a,b|A_i,B_j). \\
+    \end{align*}
+\end{definition}
+
+\begin{example}[\cite{Bell1964, mermin_1981quantum}]
+With $q(A_i,B_j)=\frac{1}{9}$ for all $i,j$:
+    \begin{equation}
+        \tag{EM-Bell}
+        q( \textcolor{Bittersweet}{A_i \mapsto a} \land \textcolor{RoyalBlue}{B_j \mapsto b} ) =
+        \begin{cases}
+            \frac{1}{2}, & \text{if} \ \ i=j \land a=b, \\
+            0, & \text{if} \ \ i=j \land a \ne b, \\
+            \frac{1}{8}, & \text{if} \ \ i \ne j \land a=b, \\
+            \frac{3}{8}, & \text{if} \ \ i \ne j \land a\ne b.
+        \end{cases}
+        \label{eq:empirical-bell}
+    \end{equation}
+    Specifically, for each $i\in \{1,2,3\}$, $q( a = b | A_i, B_i) = 1 \land q(a\neq b | A_i,B_i)=0$.
+\end{example}
+
+
+
+
+%=======================================================
+\section{Local Hidden-Variable Model}
+%=======================================================
+Let $\Lambda$ be a finite space, in which a “hidden variable” $\lambda$ dwells.
+
+\begin{definition}
+    A \emph{hidden-variable} model is a pair $(\Psi\times\Lambda,p)$ where $p$ is a probability measure on $\Psi\times\Lambda$, with
+    \begin{align*}
+        p_{\lambda}( \textcolor{Bittersweet}{A_i \mapsto a} ) &\doteq p(a | A_i, \lambda), \\
+        p_{\lambda}( \textcolor{RoyalBlue}{B_j \mapsto b}   ) &\doteq p(b | B_j, \lambda), \\
+        p_{\lambda}( \textcolor{Bittersweet}{A_i \mapsto a} \land \textcolor{RoyalBlue}{B_j \mapsto b} ) &\doteq  p(a,b | A_i, B_j, \lambda).
+    \end{align*}
+    For simplicity, we assume $p(\lambda)>0$ for each $\lambda\in\Lambda$.
+\end{definition}
+In addition to the definition, there are two major assumptions of a \emph{local} hidden-variable theory, namely \emph{$\lambda$-Independence}~\eqref{eq:lambda-idependence} and \emph{Principle of Locality}~\eqref{eq:locality}. As we will see, both are desirable properties concerning $\Lambda$, which are expected in a very fundamental way, by almost all scientific experiments.
+
+%=======================================================
+\subsection{$\lambda$-Independence}
+
+For each $\lambda \in \Lambda$, and any $A_i\in I_A, B_j\in I_B$, we have
+\begin{equation}
+    \tag{$\lambda$\textbf{I}}
+    p(\lambda) = p(\lambda | A_i) = p(\lambda | B_j) = p(\lambda | A_i, B_j)
+    \label{eq:lambda-idependence}
+\end{equation}
+which ensures that $\lambda$ is independent of the measurement choices of both $A$ and $B$. 
+
+The intuition behind~\eqref{eq:lambda-idependence} is that, the intrinsic properties of particles (the observed), “things-in-themselves” which do not appear to the observers, as represented by $\lambda\in\Lambda$, are independent of the observers' measurement choices~\footnote{Conversely, the assumptions like $p(A_i,B_j) = p(A_i,B_j | \lambda )$  emphasize the observers' \emph{freedom of choice}. They are related by Bayes' theorem $p(\lambda | A_i,B_j) \cdot p(A_i,B_j) = p(A_i,B_j|\lambda) \cdot p(\lambda)$. }.
+
+%=======================================================
+\subsection{Principle of Locality}
+
+For each $\lambda\in \Lambda$, and $A_i\in I_A, B_j\in I_B$, $a\in O_A, b\in O_B$, we have
+\begin{equation}
+    \tag{\textbf{L}}
+    p_{\lambda}( \textcolor{Bittersweet}{A_i \mapsto a} \land \textcolor{RoyalBlue}{B_j \mapsto b} ) 
+        = p_{\lambda}( \textcolor{Bittersweet}{A_i \mapsto a} ) \times p_{\lambda}( \textcolor{RoyalBlue}{B_j \mapsto b} )
+    \label{eq:locality}
+\end{equation}
+which ensures that the outcome $a \in O_A$ is independent of the measurement choice $B_j\in I_B$ \emph{and} the outcome of $b \in O_B$, and vice versa~\footnote{The alternative name for~\eqref{eq:locality} is \emph{factorizability}.}.
+
+The physical intuition of~\eqref{eq:locality} is that once conditioned by $\lambda\in\Lambda$, the measurements/outcomes of two experimenters $A$ and $B$ are “causally separated”. That is,
+\[
+    A_i \leadsto a \flowsfromb \fbox{$\lambda$} \leadsto b \flowsfromb B_j
+\]
+where arrows $\leadsto,\flowsfromb$ represent “causal flow” and read as “influence” or “cause”.
+
+
+
+
+%=======================================================
+\section{Bell's Theorem}
+%=======================================================
+\begin{theorem}[\cite{Bell1964}]
+    For the empirical model $(\Psi,q)$ defined as~\eqref{eq:empirical-bell}, there is no equivalent hidden-variable model $(\Psi\times \Lambda, p)$ satisfying both~\eqref{eq:lambda-idependence} and~\eqref{eq:locality}.
+\end{theorem}
+
+\begin{proof}[\normalfont\scshape  Proof]
+    Assume such a hidden-variable model $(\Psi\times\Lambda,p)$ satisfying ~\eqref{eq:lambda-idependence} and~\eqref{eq:locality}.
+    \begin{align*}
+        q(\textcolor{Bittersweet}{A_i \mapsto a} \land \textcolor{RoyalBlue}{B_j \mapsto b} ) 
+            &= \sum_{\lambda\in\Lambda}^{} \ p_{\lambda}(\textcolor{Bittersweet}{A_i \mapsto a} \land \textcolor{RoyalBlue}{B_j \mapsto b}) \times p(\lambda | A_i, B_j) \\
+            &= \sum_{\lambda\in\Lambda}^{} \ p(\lambda) \times p_{\lambda}(\textcolor{Bittersweet}{A_i \mapsto a} \land \textcolor{RoyalBlue}{B_j \mapsto b}) && \text{by}~\eqref{eq:lambda-idependence} \\
+            &= \sum_{\lambda\in\Lambda}^{} \ p(\lambda) \times p_{\lambda}(\textcolor{Bittersweet}{A_i \mapsto a}) \times p_{\lambda}(\textcolor{RoyalBlue}{B_j \mapsto b}). &&\text{by} ~\eqref{eq:locality}
+    \end{align*}
+    Given any $\lambda$, consider $i=j\in\{1,2,3\}$. With~\eqref{eq:empirical-bell}, we have each of
+    \begin{align*}
+        p_{\lambda}(\textcolor{Bittersweet}{A_i \mapsto \texttt{true}}) \times p_{\lambda}(\textcolor{RoyalBlue}{B_i \mapsto \texttt{false}}) &= 0, \text{and} \\
+        p_{\lambda}(\textcolor{Bittersweet}{A_i \mapsto \texttt{false}}) \times p_{\lambda}(\textcolor{RoyalBlue}{B_i \mapsto \texttt{true}}) &= 0,
+    \end{align*}
+    which says $\neg (A_i \oplus B_i)$. Since $\sum_{}^{}{p_{\lambda}(A_i\mapsto a)=\sum_{}{p_\lambda(B_i\mapsto b)=1}}$, either
+    \begin{align*}
+        p_{\lambda}(\textcolor{Bittersweet}{A_i \mapsto \texttt{true}}) =1 \land   p_{\lambda}(\textcolor{RoyalBlue}{B_i \mapsto \texttt{true}}) = 1, \text{or} \\
+        p_{\lambda}(\textcolor{Bittersweet}{A_i \mapsto \texttt{false}}) =1 \land  p_{\lambda}(\textcolor{RoyalBlue}{B_i \mapsto \texttt{false}}) = 1,
+    \end{align*}
+    which says $A_i \leftrightarrow B_i$. This implies \emph{determinism}~\cite{abramsky_2013relational}: we can define
+    \begin{align*}
+        \vec{\Delta} &: \Lambda \rightarrow \{\texttt{true}, \texttt{false}\}^3 \\
+        \vec{\Delta}(\lambda) &= (\Delta_1(\lambda), \Delta_2(\lambda), \Delta_3(\lambda))
+    \end{align*}
+    where $\Delta_i(\lambda) \in \{\texttt{true}, \texttt{false}\}$ \emph{determines} an outcome for both $A_i,B_i$ given $i$ and $\lambda$~\footnote{$\vec{\Delta}$ can be viewed as a conjunction of three different ways to partition/characterize $\Lambda$ into two disjoint subsets, or simply three \emph{properties} of $\lambda$. $\vec{\Delta}(\lambda)\in \{\texttt{true}, \texttt{false}\}^3$ corresponds to Mermin's deterministic “instruction sets”~\cite{mermin_1981quantum}, which is not \emph{assumed} for the proof but \emph{derived} from the proof.}.
+    
+    Therefore, we can rewrite
+    \begin{align*}
+        q(\textcolor{Bittersweet}{A_i \mapsto a} \land \textcolor{RoyalBlue}{B_j \mapsto b} ) &= \sum_{S_{ij}=\{\lambda\in\Lambda \mid \Delta_i(\lambda)=a\land\Delta_j(\lambda)=b   \}}{p(\lambda)}.
+    \end{align*}
+    
+    Focus on the following three cases in~\eqref{eq:empirical-bell}:
+    \begin{align*}
+        q(\textcolor{Bittersweet}{A_1 \mapsto \texttt{true}} \land \textcolor{RoyalBlue}{B_2 \mapsto \texttt{false}} ) &=3/8, & S_{12}=\{\lambda\in\Lambda \mid \Delta_1(\lambda) \land \neg \Delta_2(\lambda)\}, \\ 
+        q(\textcolor{Bittersweet}{A_2 \mapsto \texttt{true}} \land \textcolor{RoyalBlue}{B_3 \mapsto \texttt{false}} ) &=3/8, & S_{23}=\{\lambda\in\Lambda \mid \Delta_2(\lambda) \land \neg \Delta_3(\lambda)\}, \\
+        q(\textcolor{Bittersweet}{A_3 \mapsto \texttt{true}} \land \textcolor{RoyalBlue}{B_1 \mapsto \texttt{false}} ) &=3/8, & S_{31}=\{\lambda\in\Lambda \mid \Delta_3(\lambda) \land \neg \Delta_1(\lambda)\},
+    \end{align*}
+    where $S_{12},S_{23},S_{31}$ are \emph{pairwise disjoint}. We can derive an inequality:
+    \begin{align*}
+        9/8 =\sum_{S_{12}}{p(\lambda)} + \sum_{S_{23}}{p(\lambda)} + \sum_{S_{31}}{p(\lambda)} = \sum_{S_{12}\cup S_{23}\cup S_{31}}{p(\lambda)} \leq \sum_{\Lambda}{p(\lambda)} =1
+    \end{align*}
+    witnessing a contradiction.
+\end{proof}
+
+%=======================================================
+\section{Effectful Hidden-Variable Model}
+%=======================================================
+
+Starting from the determination function $\vec{\Delta}:\Lambda\rightarrow\{\texttt{true},\texttt{false}\}^3$ defined in the proof, we can naturally derive a definition of “proto-qubit”.
+
+We noticed that, the function $\Delta_i:\Lambda\rightarrow\{\texttt{true},\texttt{false}\}$ is \emph{pure}. This indicates the space of hidden-variables $\Lambda$ has 3 predefined, “intrinsic properties”.
+
+
+
+\begin{comment}
+We can define \emph{co-separator} of $\Lambda$:
+\begin{equation}
+    (\lambda_1 = \lambda_2) \overset{\mathrm{def}}{=} \forall (i\in I). \forall (\Delta_i:\Lambda\rightarrow\{\texttt{true,\texttt{false}}\}). [ \ \Delta_i(\lambda_1) \leftrightarrow \Delta_i(\lambda_2) \ ].
+\end{equation}
+
+
+
+\begin{minted}[mathescape]{haskell}
+    qa  :: Dist |$ I_A $|
+    qb  :: Dist |$ I_B $|
+    qab :: Dist (|$I_A$|, |$I_B$|)
+\end{minted}
+
+
+\begin{minted}[mathescape]{haskell}
+    emA :: |$ I_A \rightarrow $| Dist Bool
+    emB :: |$ I_B \rightarrow $| Dist Bool
+    em  :: |$ I_A \rightarrow I_B \rightarrow $| Dist (Bool, Bool)
+\end{minted}
+
+\begin{minted}[mathescape]{haskell}
+    uniformLam :: Dist |$\Lambda$|
+\end{minted}
+
+
+\begin{minted}[mathescape]{haskell}
+    d1, d2, d3 :: |$ \Lambda \rightarrow $| Bool
+    d :: |$ \Lambda \rightarrow $| (Bool, Bool, Bool)
+\end{minted}
+\end{comment}
+
+
+%=======================================================
+\section{Relating to Interpretations of QM}
+
+There are nonetheless several implicit assumptions in the proof of Bell's theorem.
+
+\subsection{Superdeterminism}
+
+\[
+    p(\lambda | C_1) \neq p(\lambda|C_2) 
+\]
+for some $C_1, C_2$.
+
+\subsection{Nonlocal hidden-variables}
+
+\subsubsection{Bohmian Mechanics}
+
+Space.
+
+\subsubsection{Transaction Interpretation}
+
+Time.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\bibliography{cites}
+\end{document}
