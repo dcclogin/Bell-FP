@@ -41,13 +41,15 @@ class Monad m => LambdaModel m where
   -- Bob’s response to his local setting
   lambdaB :: BSetting -> m Outcome
 
+  eval :: (ASetting -> m Outcome, BSetting -> m Outcome) 
+    -> (ASetting, BSetting) 
+    -> m (Outcome, Outcome)
+  eval (λA, λB) (a, b) = (,) <$> (λA a) <*> (λB b)
+
   -- Default way to run a single CHSH trial:
   -- one Alice measurement and one Bob measurement.
   measureAB :: ASetting -> BSetting -> m (Outcome, Outcome)
-  measureAB a b = do
-    x <- lambdaA a
-    y <- lambdaB b
-    pure (x, y)
+  measureAB a b = eval (lambdaA, lambdaB) (a, b)
 
 ------------------------------------------------------------
 -- Utility: value of a single trial

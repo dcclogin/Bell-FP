@@ -1,5 +1,6 @@
 module EPR.Empirical where
 
+import Config
 import EPR.Config
 import ProbabilityMonads
 

@@ -1,5 +1,6 @@
 module EPR.Hidden where
 
+import Config
 import EPR.Config
 import ProbabilityMonads
 

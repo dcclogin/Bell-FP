@@ -1,5 +1,6 @@
 module Bell.StateHV where
 
+import Config
 import Bell.Config
 import Bell.Hidden
 import ProbabilityMonads
@@ -36,7 +37,7 @@ lhvmParamB ib = do
 
 --- | p(oa, ob | ia, ib, λ) = p(oa | ia, λ) * p(ob | ib, λ)
 lhvmParamAB :: (IA, IB) -> SΛD (Bool, Bool)
-lhvmParamAB (ia, ib) = (,) <$> (lhvmParamA ia) <*> (lhvmParamB ib)
+lhvmParamAB (ia, ib) = eval (lhvmParamA, lhvmParamB) (ia, ib)
 
 --- | from distribution over Λ to the conditional empirical model
 getEmpirical :: Dist Λ -> (IA, IB) -> Dist (Bool, Bool)
@@ -159,7 +160,7 @@ smParamB ib = do
         Just b  -> return b
 
 smParamAB :: (IA, IB) -> M (Bool, Bool)
-smParamAB (ia, ib) = (,) <$> (smParamA ia) <*> (smParamB ib)
+smParamAB (ia, ib) = eval (smParamA, smParamB) (ia, ib)
 
 getEmpiricalSM :: Dist Λ -> (IA, IB) -> Dist (Bool, Bool)
 getEmpiricalSM dΛ (ia, ib) = do

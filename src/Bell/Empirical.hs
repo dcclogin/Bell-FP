@@ -1,5 +1,6 @@
 module Bell.Empirical where
 
+import Config
 import Bell.Config
 import ProbabilityMonads
 
@@ -46,8 +47,7 @@ emParamA = condFromJoint emA
 emParamB :: IB -> Dist Bool
 emParamB = condFromJoint emB
 
-
 --- | failed attempt to restore emParamAB via `prodDist` (fully mixed)
 --- | q(oa, ob | ia, ib) =? q(oa | ia) * q(ob | ib)
 emParamAB_mixed :: (IA, IB) -> Dist (Bool, Bool)
-emParamAB_mixed (ia, ib) = (emParamA ia) `prodDist` (emParamB ib)
+emParamAB_mixed (ia, ib) = eval (emParamA, emParamB) (ia, ib)

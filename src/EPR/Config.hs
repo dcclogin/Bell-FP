@@ -1,16 +1,19 @@
 module EPR.Config where
 
+import Config
 import System.Random hiding (uniform)
 import ProbabilityMonads (Dist, uniform, prodDist)
-
---- | synonym for True and False
-tt, ff :: Bool
-tt = True
-ff = False
 
 --- | A = Alice, B = Bob
 data IA = A deriving (Show, Eq, Ord, Enum, Bounded)
 data IB = B deriving (Show, Eq, Ord, Enum, Bounded)
+
+
+instance Measurement IA where
+    allMeasurements = [A]
+
+instance Measurement IB where
+    allMeasurements = [B]
 
 
 qA :: Dist IA

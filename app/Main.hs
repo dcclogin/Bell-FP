@@ -10,6 +10,8 @@ import qualified EPR.Empirical as EPR_E
 import qualified EPR.LHV as EPR_L
 import qualified EPR.StateHV as EPR_S
 
+import qualified CHSH.Examples as CHSH_EX
+
 import ProbabilityMonads
 
 
@@ -30,3 +32,5 @@ main = do
     EPR_S.testUniform
     S.testUniformSameSM
     S.testUniformDiffSM
+    print CHSH_EX.e1
+    print CHSH_EX.e2

@@ -1,5 +1,6 @@
 module Bell.Hidden where
 
+import Config
 import Bell.Config
 import ProbabilityMonads
 

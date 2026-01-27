@@ -1,23 +1,13 @@
 module Bell.Config where
 
+import Config
 import System.Random hiding (uniform)
 import ProbabilityMonads (Dist, uniform, prodDist)
 
 
---- | synonym for True and False
-tt, ff :: Bool
-tt = True
-ff = False
-
 --- | A = Alice, B = Bob
 data IA = A1 | A2 | A3 deriving (Show, Eq, Ord, Enum, Bounded)
 data IB = B1 | B2 | B3 deriving (Show, Eq, Ord, Enum, Bounded)
-
-class Measurement m where
-    allMeasurements :: [m]
-
-class Outcome o where
-    allOutcomes :: [o]
 
 instance Measurement IA where
     allMeasurements = [A1, A2, A3]
@@ -25,11 +15,6 @@ instance Measurement IB where
     allMeasurements = [B1, B2, B3]
 instance (Measurement m1, Measurement m2) => Measurement (m1, m2) where
     allMeasurements = [ (m1, m2) | m1 <- allMeasurements, m2 <- allMeasurements ]
-
-instance Outcome Bool where
-    allOutcomes = [tt, ff]
-instance (Outcome o1, Outcome o2) => Outcome (o1, o2) where
-    allOutcomes = [ (o1, o2) | o1 <- allOutcomes, o2 <- allOutcomes ]
 
 
 --- | distributions of measurement choices
