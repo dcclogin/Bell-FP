@@ -1,220 +1,114 @@
--- Hilbert space / Copenhagen
-
 module CHSH.Quantum where
 
-import Prelude hiding ((<>))
-import Control.Monad.State.Strict
-import System.Random (StdGen)
+import CHSH.Util
+import CHSH.Experiment
+import CHSH.NoSignaling
 
-import Numeric.LinearAlgebra            ( (><), (#>), (<.>), kronecker, scale, realPart )
-import Numeric.LinearAlgebra.Data       ( Vector, Matrix, Complex(..), fromList )
-
-import CHSH.DSL
-import CHSH.Util    -- for randomDouble :: MonadState StdGen m => m Double
+import Control.Monad.IO.Class
+import System.Random (randomRIO)
 
 ------------------------------------------------------------
--- TYPES
-------------------------------------------------------------
+-- Quantum trial model (sampling from the correct joint distribution)
 
-type Vec = Vector (Complex Double)
-type Mat = Matrix (Complex Double)
+newtype Quantum a = Quantum { unQuantum :: IO a }
+  deriving newtype (Functor, Applicative, Monad, MonadIO)
 
--- Embed a real as a complex with zero imaginary part
-re :: Double -> Complex Double
-re x = x :+ 0
+runQuantum :: Quantum a -> IO a
+runQuantum = unQuantum
 
--- Build a vector from reals
-vec :: [Double] -> Vec
-vec xs = fromList (map re xs)
-
--- Scale a matrix by a real factor
-rscale :: Double -> Mat -> Mat
-rscale c m = scale (re c) m
+-- Membrane: run the trial in IO (step index is irrelevant here).
+runTrialQuantum :: RunTrial IO Quantum
+runTrialQuantum _ = runQuantum
 
 ------------------------------------------------------------
--- 2×2 IDENTITY AND PAULI MATRICES
-------------------------------------------------------------
-
-i2, sx, sz :: Mat
-i2 = (2><2)
-  [ 1, 0
-  , 0, 1 ]
-
-sx = (2><2)
-  [ 0, 1
-  , 1, 0 ]
-
-sz = (2><2)
-  [  1,  0
-  ,  0, -1 ]
-
--- Tensor product: 2×2 ⊗ 2×2 → 4×4
-tensor2 :: Mat -> Mat -> Mat
-tensor2 = kronecker
-
-------------------------------------------------------------
--- LOCAL OBSERVABLES AND PROJECTORS
+-- Angles that maximize CHSH for E(a,b)=cos(2(a-b))
+-- A0 = 0, A1 = π/4
+-- B0 = π/8, B1 = -π/8
 --
--- Observable along angle θ in the x–z plane:
---   O(θ) = cos θ · σ_z + sin θ · σ_x
---
--- Projectors for outcomes ±1:
---   P⁺(θ) = (I + O(θ)) / 2
---   P⁻(θ) = (I - O(θ)) / 2
-------------------------------------------------------------
+-- Then CHSH = 2√2 (in expectation).
 
-observable :: Double -> Mat
-observable θ = rscale (cos θ) sz + rscale (sin θ) sx
+piD :: Double
+piD = pi
 
-projPlus :: Double -> Mat
-projPlus θ  = rscale 0.5 (i2 + observable θ)
+thetaA :: ASetting -> Double
+thetaA A0 = 0
+thetaA A1 = piD / 4
 
-projMinus :: Double -> Mat
-projMinus θ = rscale 0.5 (i2 - observable θ)
+thetaB :: BSetting -> Double
+thetaB B0 = piD / 8
+thetaB B1 = -piD / 8
 
-------------------------------------------------------------
--- SINGLET STATE |ψ⁻⟩ = (|01⟩ − |10⟩)/√2
--- Basis order: |00>, |01>, |10>, |11>.
-------------------------------------------------------------
+-- Correlation for the |Φ+> polarization-style model:
+-- E = cos(2(θA - θB))
+corr :: ASetting -> BSetting -> Double
+corr a b = cos (2 * (thetaA a - thetaB b))
 
-singlet :: Vec
-singlet = vec
-  [ 0
-  ,  1 / sqrt 2
-  , -1 / sqrt 2
-  , 0
-  ]
+-- Given correlation E in [-1,1], generate (A,B) with:
+--   P(A=B)   = (1+E)/2
+--   P(A≠B)   = (1-E)/2
+-- and unbiased marginals.
+samplePairWithCorr :: Double -> IO (Outcome, Outcome)
+samplePairWithCorr e = do
+  base <- randomOutcome                 
+  u    <- randomRIO (0.0, 1.0 :: Double)
+  let pSame = (1 + e) / 2
+  if u < pSame
+    then pure (base, base)
+    else pure (base, flipOutcome base)
 
-------------------------------------------------------------
--- BORN WEIGHT  ⟨ψ | P | ψ⟩
-------------------------------------------------------------
+instance TrialModel Quantum where
+  localA _ = Quantum randomOutcome
+  localB _ = Quantum randomOutcome
+  -- Special jointAB: correlated sampling, depends on both settings,
+  -- but keeps marginals uniform (no-signaling).
+  jointAB a b = Quantum $ samplePairWithCorr (corr a b)
 
-bornWeight :: Mat -> Vec -> Double
-bornWeight p v =
-  let w = p #> v
-  in  realPart (v <.> w)
+testQuantum_fixed :: IO Double
+testQuantum_fixed = chsh 200000 fixedSchedule runTrialQuantum
 
-------------------------------------------------------------
--- MEASUREMENT DIRECTIONS FOR CHSH
---
--- Standard choice:
---   A0 = σ_z        (θ = 0)
---   A1 = σ_x        (θ = π/2)
---   B0 = σ at π/4
---   B1 = σ at -π/4
-------------------------------------------------------------
+testQuantum_random :: IO Double
+testQuantum_random = chsh 200000 randomScheduleIO runTrialQuantum
 
-angleA :: ASetting -> Double
-angleA A0 = 0
-angleA A1 = pi / 2
+noSignalingQuantum :: IO (Bool, String)
+noSignalingQuantum = noSignalingReport 20000 0.02 runTrialQuantum
 
-angleB :: BSetting -> Double
-angleB B0 =  pi / 4
-angleB B1 = -pi / 4
+uniformMarginalsQuantum :: IO (Bool, String)
+uniformMarginalsQuantum = do
+  let n   = 20000
+      eps = 0.03
 
-------------------------------------------------------------
--- JOINT PROJECTORS AND PROBABILITIES ON THE SINGLET
---
--- For a given pair of settings (a,b), define:
---
---   P++ = P_A^+(a) ⊗ P_B^+(b)
---   P+- = P_A^+(a) ⊗ P_B^-(b)
---   P-+ = P_A^-(a) ⊗ P_B^+(b)
---   P-- = P_A^-(a) ⊗ P_B^-(b)
---
--- and their Born weights:
---
---   w++ = ⟨ψ|P++|ψ⟩, etc.
---
--- We normalise to get a probability distribution:
---
---   p++ = w++ / (w++ + w+- + w-+ + w--)
---   ...
-------------------------------------------------------------
+  pA00 <- pAPlus n runTrialQuantum A0 B0
+  pA01 <- pAPlus n runTrialQuantum A0 B1
+  pA10 <- pAPlus n runTrialQuantum A1 B0
+  pA11 <- pAPlus n runTrialQuantum A1 B1
 
-jointProbs :: ASetting -> BSetting -> (Double, Double, Double, Double)
-jointProbs a b =
-  let θA = angleA a
-      θB = angleB b
+  pB00 <- pBPlus n runTrialQuantum A0 B0
+  pB10 <- pBPlus n runTrialQuantum A1 B0
+  pB01 <- pBPlus n runTrialQuantum A0 B1
+  pB11 <- pBPlus n runTrialQuantum A1 B1
 
-      paP = projPlus  θA
-      paM = projMinus θA
-      pbP = projPlus  θB
-      pbM = projMinus θB
+  let closeHalf p = abs (p - 0.5) <= eps
+      ok = and (map closeHalf [pA00,pA01,pA10,pA11,pB00,pB01,pB10,pB11])
 
-      pPP = tensor2 paP pbP
-      pPM = tensor2 paP pbM
-      pMP = tensor2 paM pbP
-      pMM = tensor2 paM pbM
+      msg = unlines
+        [ "Uniform marginal check (should be ~0.5)"
+        , "--------------------------------------"
+        , "Alice: P(+|A0,B0)=" ++ show pA00 ++ "  P(+|A0,B1)=" ++ show pA01
+        , "       P(+|A1,B0)=" ++ show pA10 ++ "  P(+|A1,B1)=" ++ show pA11
+        , "Bob:   P(+|A0,B0)=" ++ show pB00 ++ "  P(+|A1,B0)=" ++ show pB10
+        , "       P(+|A0,B1)=" ++ show pB01 ++ "  P(+|A1,B1)=" ++ show pB11
+        , "eps = " ++ show eps ++ "   n = " ++ show n
+        ]
 
-      wPP = bornWeight pPP singlet
-      wPM = bornWeight pPM singlet
-      wMP = bornWeight pMP singlet
-      wMM = bornWeight pMM singlet
+  pure (ok, msg)
 
-      total = wPP + wPM + wMP + wMM
-  in  ( wPP / total
-      , wPM / total
-      , wMP / total
-      , wMM / total )
+testNoSignalQuantum :: IO ()
+testNoSignalQuantum = do
+  r <- noSignalingQuantum
+  prettyReport r
 
-------------------------------------------------------------
--- QuantumRun monad = "one quantum experiment run"
---
--- This is just State StdGen, but we give it a distinct
--- name to emphasise the semantic role.
-------------------------------------------------------------
+testUniformQuantum :: IO ()
+testUniformQuantum = do
+  r <- uniformMarginalsQuantum
+  prettyReport r
 
-newtype QuantumRun a =
-  QuantumRun { unQuantumRun :: State StdGen a }
-  deriving (Functor, Applicative, Monad, MonadState StdGen)
-
-evalQuantumRun :: QuantumRun a -> StdGen -> (a, StdGen)
-evalQuantumRun (QuantumRun m) = runState m
-
-------------------------------------------------------------
--- LambdaModel instance: genuine quantum semantics
---
--- Here the "monadic λ" is *intrinsically nonlocal*:
--- we override measureAB to do a joint Born sampling
--- of (A,B) from the singlet, for the chosen settings.
-------------------------------------------------------------
-
-instance LambdaModel QuantumRun where
-
-  -- We don't actually use lambdaA / lambdaB for the
-  -- quantum model; the physics is in the joint measurement.
-  -- You could implement them as marginals if you wish.
-  lambdaA :: ASetting -> QuantumRun Outcome
-  lambdaA _ = error "lambdaA not used directly in QuantumRun"
-
-  lambdaB :: BSetting -> QuantumRun Outcome
-  lambdaB _ = error "lambdaB not used directly in QuantumRun"
-
-  measureAB :: ASetting -> BSetting -> QuantumRun (Outcome, Outcome)
-  measureAB a b = QuantumRun $ do
-    let (pPP, pPM, pMP, pMM) = jointProbs a b
-
-        -- cumulative thresholds
-        t1 = pPP
-        t2 = t1 + pPM
-        t3 = t2 + pMP
-
-    u <- randomDouble      -- from Util, in [0,1)
-    pure $
-      if      u < t1 then (Plus,  Plus )
-      else if u < t2 then (Plus,  Minus)
-      else if u < t3 then (Minus, Plus )
-      else                (Minus, Minus)
-
-------------------------------------------------------------
--- Quantum CHSH protocol runner
---
--- Uses the generic 'chsh' from DSL, but instantiates
--- it with the QuantumRun semantics above.
-------------------------------------------------------------
-
-runQuantumCHSH :: Int -> StdGen -> Double
-runQuantumCHSH n rng0 =
-  let (val, _) = evalQuantumRun (chsh n) rng0
-  in  val

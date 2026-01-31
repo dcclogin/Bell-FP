@@ -1,64 +1,70 @@
 module CHSH.Util where
 
-import Control.Monad
-import Control.Monad.State.Strict
-import System.Random (StdGen, randomR)
+import System.Random (randomRIO)
 
-import CHSH.DSL
+-- Outcomes and settings
+
+-- We have an experiment with the following ingredients:
+--   - two black boxes, one with Alice and one with Bob
+--   - each black box has one input with two possible values
+--   - each black box produces +/-1 as output
+--   - the internals of the black boxes are unknown but are
+--     subject to possible constraints we will explore
+
+-- Each party has two possible settings (inputs to their black box)
+
+data ASetting = A0 | A1 deriving Eq
+data BSetting = B0 | B1 deriving Eq
+
+-- A CHSH trial with settings (a,b) produces a pair (x,y).
+-- The score is +/-1 indicating agreement or disagreement
+
+data Outcome = Minus | Plus deriving Eq
+
+-- Sample an unbiased sign (±1) as Outcome
+randomOutcome :: IO Outcome
+randomOutcome = do
+  r <- randomRIO (0 :: Int, 1)
+  pure $ if r == 0 then Minus else Plus
+
+flipOutcome :: Outcome -> Outcome
+flipOutcome Minus = Plus
+flipOutcome Plus  = Minus
+
+trialValue :: (Outcome, Outcome) -> Int
+trialValue (x, y) | x == y    = 1
+                  | otherwise = -1
+
+outBit :: Outcome -> Int
+outBit Plus  = 0
+outBit Minus = 1
+
+bitOut :: Int -> Outcome
+bitOut b = if b `mod` 2 == 0 then Plus else Minus
+
+aBit :: ASetting -> Int
+aBit A0 = 0
+aBit A1 = 1
+
+bBit :: BSetting -> Int
+bBit B0 = 0
+bBit B1 = 1
+
+-- Sampling
+
+mcAverageIx :: Monad e => Int -> (Int -> e Int) -> e Double
+mcAverageIx n sampleAt = do
+  xs <- mapM sampleAt [0 .. n-1]
+  pure (fromIntegral (sum xs) / fromIntegral n)
+
+uniformCycle :: Applicative e => [a] -> Int -> e a
+uniformCycle xs i = pure (xs !! (i `mod` length xs))
+
+prettyReport :: (Bool, String) -> IO ()
+prettyReport (ok, msg) = do
+  putStrLn msg
+  putStrLn $
+    if ok then "\n✓ No-signaling holds"
+          else "\n✗ No-signaling VIOLATED"
 
 ------------------------------------------------------------
--- Device runner for one-shot experiments
-------------------------------------------------------------
-
-type RunOneShot m = OneShot -> m (Outcome, Outcome)
-
-------------------------------------------------------------
--- Random sampling in any StdGen state monad
-------------------------------------------------------------
-
-randomDouble :: (MonadState StdGen m) => m Double
-randomDouble = state (randomR (0.0, 1.0 :: Double))
-
-------------------------------------------------------------
--- Repeat one-shot N times using a given runner
-------------------------------------------------------------
-
-repeatOneShotWith
-  :: (MonadState StdGen m)
-  => RunOneShot m
-  -> Int
-  -> OneShot
-  -> m [(Outcome, Outcome)]
-repeatOneShotWith run n expr =
-  replicateM n (run expr)
-
-------------------------------------------------------------
--- Monte Carlo mean for a given (a,b) setting
-------------------------------------------------------------
-
-estimateMeanWith
-  :: (MonadState StdGen m)
-  => RunOneShot m
-  -> Int        -- number of samples
-  -> OneShot
-  -> m Double
-estimateMeanWith run n expr = do
-  xs <- repeatOneShotWith run n expr
-  let s = sum (map trialValue xs)
-  pure (fromIntegral s / fromIntegral n)
-
-------------------------------------------------------------
--- CHSH meta-protocol, parameterised by a device runner
-------------------------------------------------------------
-
-chshWith
-  :: (MonadState StdGen m)
-  => RunOneShot m   -- ^ how to run ONE (A,B) experiment
-  -> Int            -- ^ samples per correlation
-  -> m Double
-chshWith run n = do
-  e00 <- estimateMeanWith run n (MeasureAB A0 B0)
-  e01 <- estimateMeanWith run n (MeasureAB A0 B1)
-  e10 <- estimateMeanWith run n (MeasureAB A1 B0)
-  e11 <- estimateMeanWith run n (MeasureAB A1 B1)
-  pure (e00 + e01 + e10 - e11)
