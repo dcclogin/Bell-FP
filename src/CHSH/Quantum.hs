@@ -5,6 +5,7 @@ import CHSH.Experiment
 import CHSH.NoSignaling
 
 import Control.Monad.IO.Class
+import Control.Monad.Reader (ReaderT(..))
 import System.Random (randomRIO)
 
 ------------------------------------------------------------
@@ -13,12 +14,10 @@ import System.Random (randomRIO)
 newtype Quantum a = Quantum { unQuantum :: IO a }
   deriving newtype (Functor, Applicative, Monad, MonadIO)
 
-runQuantum :: Quantum a -> IO a
-runQuantum = unQuantum
-
--- Membrane: run the trial in IO (step index is irrelevant here).
+-- Membrane: embed a Quantum trial into the experiment monad Exp IO.
+-- The experiment has a step index, but this model does not use it.
 runTrialQuantum :: RunTrial IO Quantum
-runTrialQuantum _ = runQuantum
+runTrialQuantum (Quantum ioa) = ReaderT (\_ -> ioa)
 
 ------------------------------------------------------------
 -- Angles that maximize CHSH for E(a,b)=cos(2(a-b))
@@ -27,18 +26,15 @@ runTrialQuantum _ = runQuantum
 --
 -- Then CHSH = 2√2 (in expectation).
 
-piD :: Double
-piD = pi
-
 thetaA :: ASetting -> Double
 thetaA A0 = 0
-thetaA A1 = piD / 4
+thetaA A1 = pi / 4
 
 thetaB :: BSetting -> Double
-thetaB B0 = piD / 8
-thetaB B1 = -piD / 8
+thetaB B0 = pi / 8
+thetaB B1 = -pi / 8
 
--- Correlation for the |Φ+> polarization-style model:
+-- Correlation for a |Φ+>-style polarization model:
 -- E = cos(2(θA - θB))
 corr :: ASetting -> BSetting -> Double
 corr a b = cos (2 * (thetaA a - thetaB b))
@@ -46,10 +42,13 @@ corr a b = cos (2 * (thetaA a - thetaB b))
 -- Given correlation E in [-1,1], generate (A,B) with:
 --   P(A=B)   = (1+E)/2
 --   P(A≠B)   = (1-E)/2
--- and unbiased marginals.
+-- and uniform marginals for both parties.
+--
+-- Why marginals stay uniform: base is uniform; we either keep it or flip it,
+-- so each side remains unbiased regardless of E.
 samplePairWithCorr :: Double -> IO (Outcome, Outcome)
 samplePairWithCorr e = do
-  base <- randomOutcome                 
+  base <- randomOutcome
   u    <- randomRIO (0.0, 1.0 :: Double)
   let pSame = (1 + e) / 2
   if u < pSame
@@ -57,21 +56,32 @@ samplePairWithCorr e = do
     else pure (base, flipOutcome base)
 
 instance TrialModel Quantum where
+  -- Unused once jointAB is overridden, but harmless to define.
   localA _ = Quantum randomOutcome
   localB _ = Quantum randomOutcome
-  -- Special jointAB: correlated sampling, depends on both settings,
+
+  -- Correlated joint sampling depends on both settings,
   -- but keeps marginals uniform (no-signaling).
   jointAB a b = Quantum $ samplePairWithCorr (corr a b)
 
+------------------------------------------------------------
+-- CHSH tests
+
+-- Expect ~2.8284 (2*sqrt 2)
 testQuantum_fixed :: IO Double
 testQuantum_fixed = chsh 200000 fixedSchedule runTrialQuantum
 
+-- Expect ~2.8284 as well (schedule randomness should not matter here)
 testQuantum_random :: IO Double
 testQuantum_random = chsh 200000 randomScheduleIO runTrialQuantum
+
+------------------------------------------------------------
+-- No-signaling checks
 
 noSignalingQuantum :: IO (Bool, String)
 noSignalingQuantum = noSignalingReport 20000 0.02 runTrialQuantum
 
+-- Optional: stronger-looking but redundant with noSignalingReport.
 uniformMarginalsQuantum :: IO (Bool, String)
 uniformMarginalsQuantum = do
   let n   = 20000
@@ -103,12 +113,7 @@ uniformMarginalsQuantum = do
   pure (ok, msg)
 
 testNoSignalQuantum :: IO ()
-testNoSignalQuantum = do
-  r <- noSignalingQuantum
-  prettyReport r
+testNoSignalQuantum = prettyReport =<< noSignalingQuantum
 
 testUniformQuantum :: IO ()
-testUniformQuantum = do
-  r <- uniformMarginalsQuantum
-  prettyReport r
-
+testUniformQuantum = prettyReport =<< uniformMarginalsQuantum

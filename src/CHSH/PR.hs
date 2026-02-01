@@ -1,59 +1,55 @@
 module CHSH.PR where
 
--- jointAB freely looks at both settings
+-- PR box: jointAB may depend on both settings.
+-- This preserves parameter independence at the level of marginals
+-- (no-signaling) but violates outcome independence / factorization.
 
--- preserves parameter indepedence
--- breaks outcome independence;
--- contrast with Quantum that has jointAB depend on a,b but
--- in a constrained way
-
-import CHSH.Syntax
 import CHSH.Util
-import CHSH.Explore (fixedSchedule, randomScheduleIO)
+import CHSH.Experiment
+import CHSH.NoSignaling
 
 import Control.Monad.IO.Class
+import Control.Monad.Reader (ReaderT(..))
 import System.Random (randomRIO)
+
+------------------------------------------------------------
+-- PR trial model
 
 newtype PR a = PR { unPR :: IO a }
   deriving newtype (Functor, Applicative, Monad, MonadIO)
 
+-- Membrane: embed PR trials into Exp IO; ignore the step index.
 runTrialPR :: RunTrial IO PR
-runTrialPR _ = unPR
+runTrialPR (PR ioa) = ReaderT (\_ -> ioa)
 
 instance TrialModel PR where
-  -- local marginals are uniform; defined for completeness
-  localA _ = PR $ do r <- randomRIO (0::Int,1); pure (if r==0 then Plus else Minus)
-  localB _ = PR $ do r <- randomRIO (0::Int,1); pure (if r==0 then Plus else Minus)
+  -- Local marginals are uniform; defined for completeness.
+  -- (They are not used once jointAB is overridden.)
+  localA _ = PR randomOutcome
+  localB _ = PR randomOutcome
 
-  -- PR constraint: x ⊕ y = a ∧ b, with uniform marginals
+  -- PR constraint (in bit form):
+  --   x ⊕ y = a ∧ b
+  -- with x uniform, hence uniform marginals for both parties.
   jointAB a b = PR $ do
-    x <- randomRIO (0::Int,1)          -- choose x uniformly
-    let c = (aBit a) * (bBit b)        -- a ∧ b (since bits are 0/1)
-        y = x `xor` c
+    x <- randomRIO (0 :: Int, 1)          -- choose x uniformly
+    let c = aBit a * bBit b               -- a ∧ b since bits are 0/1
+        y = xor x c
     pure (bitOut x, bitOut y)
-    where xor u v = (u + v) `mod` 2
 
 ------------------------------------------------------------
 -- Tests
 
--- PR should hit ~4 under any schedule
+-- PR should hit ~4 under any schedule (fixed or random).
 testPR_fixed :: IO Double
 testPR_fixed = chsh 20000 fixedSchedule runTrialPR
 
 testPR_random :: IO Double
 testPR_random = chsh 20000 randomScheduleIO runTrialPR
 
--- Quick no-signaling sanity: Alice marginal at A0 should not depend on Bob setting.
--- We estimate P(Alice=Plus | A0,B0) and P(Alice=Plus | A0,B1) and compare.
-pAlicePlus :: Int -> ASetting -> BSetting -> IO Double
-pAlicePlus n a b = do
-  xs <- sequence [ fst <$> runTrialPR 0 (jointAB a b) | _ <- [1..n] ]
-  let k = length [ () | Plus <- xs ]
-  pure (fromIntegral k / fromIntegral n)
+-- Reuse the generic no-signaling checker.
+noSignalingPR :: IO (Bool, String)
+noSignalingPR = noSignalingReport 20000 0.02 runTrialPR
 
-testPR_noSignal_A0 :: IO (Double, Double, Double)
-testPR_noSignal_A0 = do
-  p00 <- pAlicePlus 20000 A0 B0
-  p01 <- pAlicePlus 20000 A0 B1
-  pure (p00, p01, abs (p00 - p01))
--- Expect p00 ~ 0.5, p01 ~ 0.5, diff small (say < 0.02 with 20k)
+testNoSignalPR :: IO ()
+testNoSignalPR = prettyReport =<< noSignalingPR

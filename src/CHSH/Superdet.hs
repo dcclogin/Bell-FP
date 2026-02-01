@@ -1,63 +1,68 @@
 module CHSH.Superdet where
 
--- Sampler looks at settings first
--- breaks lambda independence
--- contrast with LHV with has sampler but that do not depend
--- on settings
-
-import CHSH.Syntax
-import CHSH.LHV (Lambda(..), LHV(..))  
-import CHSH.Explore (fixedSchedule, randomScheduleIO)
+import CHSH.Util
+import CHSH.Experiment
+import CHSH.LHV (Lambda(..), LHV(..))
 
 import Control.Monad.Identity
 import Control.Monad.Reader
 
--- "Illegal" sampler: λ may depend on (a,b).
-type BadSampler e = Int -> (ASetting,BSetting) -> e Lambda
+------------------------------------------------------------
+-- Superdeterminism: lambda may depend on (a,b)
+-- This breaks lambda-independence (measurement independence).
 
--- An "illegal membrane" that feeds the chosen (a,b) into λ.
-runTrialSuperdet
+-- "Illegal" sampler: lambda may depend on the chosen settings.
+type BadSampler e = Int -> (ASetting, BSetting) -> e Lambda
+
+-- Superdet CHSH runner: uses ONE schedule draw per trial,
+-- and passes that same (a,b) to the bad sampler.
+chshSuperdet
   :: Monad e
-  => Schedule e
+  => Int
+  -> Schedule e
   -> BadSampler e
-  -> RunTrial e LHV
-runTrialSuperdet sched badLam i (LHV r) = do
-  ab  <- sched i
-  lam <- badLam i ab
-  pure (runReader r lam)
+  -> e Double
+chshSuperdet n sched badLam =
+  (*4) <$> mcAverageIx n trial
+  where
+    trial i = do
+      (a,b) <- runReaderT sched i
+      lam   <- badLam i (a,b)
+      let xy = runReader (unLHV (jointAB a b)) lam
+          v  = trialValue xy
+      pure $ case (a,b) of
+        (A1,B1) -> -v
+        _       ->  v
 
--- A maximally cheating badLam: pick λ that forces the CHSH term to be +1 always.
--- This achieves CHSH = 4 classically.
+------------------------------------------------------------
+-- A maximally cheating badLam: force the CHSH term to be +1 always.
+-- For (A1,B1) we want trialValue = -1 so the "-" term becomes +1.
+-- Otherwise we want trialValue = +1 directly.
+
 cheatLam :: Applicative e => BadSampler e
 cheatLam _ (a,b) =
   pure $ case (a,b) of
-    (A1,B1) -> Lambda Plus Plus Plus Minus  -- make A*B = -1 so the "-" term becomes +1
-    _       -> Lambda Plus Plus Plus Plus   -- make A*B = +1
+    (A1,B1) -> Lambda Plus Plus Plus Minus
+    _       -> Lambda Plus Plus Plus Plus
 
-
--- runIdentity (chsh n fixedSchedule (runTrialSuperdet fixedSchedule cheatLam))
--- tends to 4 (no “special jointAB” needed; the leak is in λ-dependence)
+-- Control: a "legal" sampler ignores (a,b); this is an ordinary LHV choice.
+legalAllPlus :: Applicative e => BadSampler e
+legalAllPlus _ _ = pure (Lambda Plus Plus Plus Plus)
 
 ------------------------------------------------------------
 -- Tests
 
--- With superdeterministic λ(a,b), we can reach 4 even with applicative jointAB.
 testSuperdet_fixed :: Double
 testSuperdet_fixed =
-  runIdentity (chsh 20000 fixedSchedule (runTrialSuperdet fixedSchedule cheatLam))
+  runIdentity (chshSuperdet 20000 fixedSchedule cheatLam)
+-- ~4.0
 
--- No cheating now
 testSuperdet_random :: IO Double
 testSuperdet_random =
-  chsh 20000 randomScheduleIO (runTrialSuperdet randomScheduleIO cheatLam)
-
--- Control: if you replace cheatLam with a legal sampler (ignores a,b), you drop back ≤2.
--- For example, always pick all-plus λ:
-legalAllPlus :: Applicative e => BadSampler e
-legalAllPlus _ _ = pure (Lambda Plus Plus Plus Plus)
+  chshSuperdet 20000 randomScheduleIO cheatLam
+-- ~4.0 (superdet correlations persist under randomization by definition)
 
 testSuperdet_control :: Double
 testSuperdet_control =
-  runIdentity (chsh 20000 fixedSchedule (runTrialSuperdet fixedSchedule legalAllPlus))
--- should be exactly 2
-
+  runIdentity (chshSuperdet 20000 fixedSchedule legalAllPlus)
+-- 2.0 exactly

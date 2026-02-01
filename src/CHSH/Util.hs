@@ -50,6 +50,9 @@ bBit :: BSetting -> Int
 bBit B0 = 0
 bBit B1 = 1
 
+xor :: Int -> Int -> Int
+xor u v = (u + v) `mod` 2
+
 -- Sampling
 
 mcAverageIx :: Monad e => Int -> (Int -> e Int) -> e Double

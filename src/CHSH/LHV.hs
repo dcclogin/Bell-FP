@@ -89,9 +89,10 @@ biasedPlus2IO p _ = do
 -- Example tests
 
 runTrialLHV :: Monad e => Sampler e -> RunTrial e LHV
-runTrialLHV sampleLam i (LHV r) = do
-  lam <- sampleLam i
-  pure (runReader r lam)
+runTrialLHV sampleLam (LHV r) =
+  ReaderT $ \i -> do
+    lam <- sampleLam i
+    pure (runReader r lam)
 
 lhvCHSHId :: Int -> Sampler Identity -> Double
 lhvCHSHId n samp =

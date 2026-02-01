@@ -15,16 +15,12 @@ instance TrialModel Identity where
   localA a = if a == A0 then pure Plus else pure Minus
   localB b = if b == B0 then pure Minus else pure Plus
 
--- Trial and experiment monad are the same
-sameTrial :: RunTrial m m
-sameTrial _ = id
-
 -- Trial is pure Identity inside any experiment monad
 liftIdentity :: Applicative e => RunTrial e Identity
-liftIdentity _ = pure . runIdentity
+liftIdentity ta = ReaderT (\_ -> pure (runIdentity ta))
 
 test1_fixed :: Double
-test1_fixed = runIdentity (chsh 20000 fixedSchedule sameTrial)
+test1_fixed = runIdentity (chsh 20000 fixedSchedule liftIdentity)
 -- expect 2.0 exactly (deterministic)
 
 test1_random :: IO Double
@@ -51,7 +47,7 @@ instance TrialModel (State Shared) where
       _             -> Minus
 
 runTrialState :: RunTrial Identity (State Shared)
-runTrialState _ t = Identity (evalState t (Shared Nothing))
+runTrialState t = ReaderT (\_ -> Identity (evalState t (Shared Nothing)))
 
 test2_fixed :: Double
 test2_fixed = runIdentity (chsh 20000 fixedSchedule runTrialState) 
@@ -69,22 +65,28 @@ instance TrialModel Clocked where
     i <- ask
     pure $ if i `mod` 4 == 3 then Minus else Plus
 
--- Loophole open: reveal the clock to the trial
-runTrialClockLoose :: RunTrial Identity Clocked
-runTrialClockLoose i (Clocked r) = Identity (runReader r i)
+-- Loophole open: reveal the clock to the trial (polymorphic)
+runTrialClockLoose :: Applicative e => RunTrial e Clocked
+runTrialClockLoose (Clocked r) = ReaderT (\i -> pure (runReader r i))
 
--- Loophole closed: hide the clock (always run trial at i = 0)
-runTrialClockTight :: RunTrial Identity Clocked
-runTrialClockTight _ (Clocked r) = Identity (runReader r 0)
+-- Loophole closed: hide the clock (always run trial at i = 0) (polymorphic)
+runTrialClockTight :: Applicative e => RunTrial e Clocked
+runTrialClockTight (Clocked r) = ReaderT (\_ -> pure (runReader r 0))
 
 test3_loophole_open :: Double
 test3_loophole_open =
   runIdentity (chsh 20000 fixedSchedule runTrialClockLoose)
--- ~4.0 (predictable schedule + shared clock channel)
 
 test3_loophole_closed :: Double
 test3_loophole_closed =
   runIdentity (chsh 20000 fixedSchedule runTrialClockTight)
--- ~2.0
+
+test3_random_loophole_open :: IO Double
+test3_random_loophole_open =
+  chsh 20000 randomScheduleIO runTrialClockLoose
+
+test3_random_loophole_closed :: IO Double
+test3_random_loophole_closed =
+  chsh 20000 randomScheduleIO runTrialClockTight
 
 ------------------------------------------------------------

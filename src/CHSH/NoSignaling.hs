@@ -4,6 +4,7 @@ import CHSH.Util
 import CHSH.Experiment
 
 import Data.List (intercalate)
+import Control.Monad.Reader (runReaderT)
 
 ------------------------------------------------------------
 -- Estimators
@@ -17,7 +18,7 @@ sampleAB
   -> BSetting
   -> e [(Outcome, Outcome)]
 sampleAB n runTrial a b =
-  mapM (\i -> runTrial i (jointAB a b)) [0 .. n-1]
+  mapM (\i -> runReaderT (runTrial (jointAB a b)) i) [0 .. n-1]
 
 pAPlus
   :: (Monad e, TrialModel t)
