@@ -40,19 +40,25 @@ bell-fp/
         ├── Experiment.hs      -- TrialModel class, scheduling, CHSH calculation
         ├── NoSignaling.hs     -- Empirical no-signaling checks
         │
+        ├── Explore.hs         -- Three instructive examples in Section 2 
+        │
         ├── Identity.hs        -- Deterministic local model
         ├── LHV.hs             -- Local hidden-variable models
         │
         ├── Shared.hs          -- Within-trial signaling model
-        ├── Clocked.hs         -- Cross-trial scheduler leakage 
+        ├── Clocked.hs         -- Cross-trial scheduler leakage model
         ├── Superdet.hs        -- Superdeterministic model
         │
         ├── Quantum.hs         -- Quantum model (Tsirelson bound)
         ├── PR.hs              -- PR-box model (algebraic maximum 4)
-        ├── PRState.hs         -- A nonlocal hidden-variable model of PR-box
+        ├── PRState.hs         -- PR-box: a nonlocal hidden-variable model
         │
         └── Contextuality.hs   -- Specker triangle contextual model
 ```
+
+You can either
+- enter `Explore.hs` first and run three tiny examples one by one, and then navigate to other models listed above; or
+- run all models (CHSH tests and no-signaling checks) at once using the command `cabal run`.
 
 
 
