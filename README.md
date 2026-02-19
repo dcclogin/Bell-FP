@@ -57,7 +57,7 @@ bell-fp/
 ```
 
 You can either
-- enter `Explore.hs` first and run three tiny examples one by one, and then navigate to other models listed above; or
+- enter `Explore.hs` and run 3 tiny examples one by one, then navigate to other models listed above; or
 - run all models (CHSH tests and no-signaling checks) at once using the command `cabal run`.
 
 

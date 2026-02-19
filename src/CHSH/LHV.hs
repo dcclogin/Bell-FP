@@ -102,38 +102,43 @@ runTrialLHV sampleLam (LHV r) =
 ------------------------------------------------------------
 -- CHSH tests
 
-lhvCHSHId :: Int -> Sampler Identity -> Double
-lhvCHSHId n samp =
-  runIdentity (chsh n fixedSchedule (runTrialLHV samp))
+lhvCHSHId :: Int -> Sampler Identity -> Schedule Identity -> Double
+lhvCHSHId n samp sched =
+  runIdentity (chsh n sched (runTrialLHV samp))
 
-lhvCHSHIO :: Int -> Sampler IO -> IO Double
-lhvCHSHIO n samp =
-  chsh n fixedSchedule (runTrialLHV samp)
+lhvCHSHIO :: Int -> Sampler IO -> Schedule IO -> IO Double
+lhvCHSHIO n samp sched =
+  chsh n sched (runTrialLHV samp)
 
-testLHV_uniform0 :: Double
-testLHV_uniform0 = lhvCHSHId 20000 uniformAll
+testLHV_uniform_fixed :: Double
+testLHV_uniform_fixed = lhvCHSHId 20000 uniformAll fixedSchedule
+-- ~0.0
+
+testLHV_uniform_random :: IO Double
+testLHV_uniform_random = lhvCHSHIO 200000 uniformAll randomScheduleIO
 -- ~0.0
 
 testLHV_plus2 :: Double
-testLHV_plus2 = lhvCHSHId 20000 plus2
+testLHV_plus2 = lhvCHSHId 20000 plus2 fixedSchedule
 -- 2.0 exactly
 
 testLHV_minus2 :: Double
-testLHV_minus2 = lhvCHSHId 20000 minus2
+testLHV_minus2 = lhvCHSHId 20000 minus2 fixedSchedule
 -- -2.0 exactly
+
 
 testLHV_bias_loophole_7of8 :: Double
 testLHV_bias_loophole_7of8 =
-  lhvCHSHId 20000 (biasPlus2Loophole 7 8)
+  lhvCHSHId 20000 (biasPlus2Loophole 7 8) fixedSchedule
 -- typically ~3.0 under fixedSchedule (this is the point!)
 
 testLHV_bias_blocks_7of8 :: Double
 testLHV_bias_blocks_7of8 =
-  lhvCHSHId 20000 (biasPlus2Blocks 7 8)
+  lhvCHSHId 20000 (biasPlus2Blocks 7 8) fixedSchedule
 -- should be close to 4*(7/8) - 2 = 1.5
 
 testLHV_biasIO :: Double -> IO Double
-testLHV_biasIO p = lhvCHSHIO 200000 (biasedPlus2IO p)
+testLHV_biasIO p = lhvCHSHIO 200000 (biasedPlus2IO p) fixedSchedule
 
 ------------------------------------------------------------
 -- No-signaling checks
