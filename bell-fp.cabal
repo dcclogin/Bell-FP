@@ -1,9 +1,5 @@
 cabal-version: 3.0
 
--- This file has been generated from package.yaml by hpack version 0.38.1.
---
--- see: https://github.com/sol/hpack
-
 name:           bell-fp
 version:        0.1.0.0
 description:    Please see the README on GitHub at <https://github.com/githubuser/bell-fp#readme>
@@ -25,14 +21,17 @@ source-repository head
 
 library
   exposed-modules:
+			CHSH.Clocked
       CHSH.Contextuality
+			CHSH.Explore
       CHSH.Experiment
-      CHSH.Explore
+      CHSH.Identity
       CHSH.LHV
       CHSH.NoSignaling
       CHSH.PR
       CHSH.PRState
       CHSH.Quantum
+			CHSH.Shared
       CHSH.Superdet
       CHSH.Util
   other-modules:

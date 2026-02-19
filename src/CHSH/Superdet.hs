@@ -2,14 +2,19 @@ module CHSH.Superdet where
 
 import CHSH.Util
 import CHSH.Experiment
+import CHSH.NoSignaling (noSignalingReport)
 import CHSH.LHV (Lambda(..), LHV(..))
 
 import Control.Monad.Identity
 import Control.Monad.Reader
 
 ------------------------------------------------------------
--- Superdeterminism: lambda may depend on (a,b)
--- This breaks lambda-independence (measurement independence).
+-- Superdeterminism: lambda may depend on settings (a,b).
+-- It saves the locality assumption (conjunction of parameter 
+-- and outcome independence) at the cost of lambda-independence.
+-- By allowing λ to depend on (a,b), we can "cheat" and achieve 
+-- the algebraic maximum 4 for CHSH, even under random scheduling. 
+
 
 -- "Illegal" sampler: lambda may depend on the chosen settings.
 type BadSampler e = Int -> (ASetting, BSetting) -> e Lambda
@@ -50,7 +55,19 @@ legalAllPlus :: Applicative e => BadSampler e
 legalAllPlus _ _ = pure (Lambda Plus Plus Plus Plus)
 
 ------------------------------------------------------------
--- Tests
+-- Membrane: embed a superdeterministic trial into the experiment 
+-- monad Exp e, by sampling a λ for each trial using a provided 
+-- illegal sampler that allows λ to depend on (a,b).
+
+runTrialSuperdet :: Monad e => Schedule e -> BadSampler e -> RunTrial e LHV
+runTrialSuperdet sched badLam (LHV r) =
+  ReaderT $ \i -> do
+    (a,b) <- runReaderT sched i
+    lam   <- badLam i (a,b)
+    pure (runReader r lam)
+
+------------------------------------------------------------
+-- CHSH Tests
 
 testSuperdet_fixed :: Double
 testSuperdet_fixed =
@@ -66,3 +83,14 @@ testSuperdet_control :: Double
 testSuperdet_control =
   runIdentity (chshSuperdet 20000 fixedSchedule legalAllPlus)
 -- 2.0 exactly
+
+
+------------------------------------------------------------
+-- No-signaling checks
+
+noSignalingSuperdet :: IO (Bool, String)
+noSignalingSuperdet = 
+  noSignalingReport 20000 0.02 (runTrialSuperdet fixedSchedule cheatLam)
+
+noSignalingSuperdet_print :: IO ()
+noSignalingSuperdet_print = prettyReport =<< noSignalingSuperdet

@@ -10,6 +10,9 @@ import System.Random (randomRIO)
 
 ------------------------------------------------------------
 -- Quantum trial model (sampling from the correct joint distribution)
+-- This model achieves the Tsirelson bound of 2√2 ≈ 2.8284 by 
+-- overriding jointAB with a sampling procedure that depends on 
+-- both settings, but keeps the no-signaling condition satisfied.
 
 newtype Quantum a = Quantum { unQuantum :: IO a }
   deriving newtype (Functor, Applicative, Monad, MonadIO)
@@ -112,8 +115,8 @@ uniformMarginalsQuantum = do
 
   pure (ok, msg)
 
-testNoSignalQuantum :: IO ()
-testNoSignalQuantum = prettyReport =<< noSignalingQuantum
+noSignalingQuantum_print :: IO ()
+noSignalingQuantum_print = prettyReport =<< noSignalingQuantum
 
-testUniformQuantum :: IO ()
-testUniformQuantum = prettyReport =<< uniformMarginalsQuantum
+uniformQuantum_print :: IO ()
+uniformQuantum_print = prettyReport =<< uniformMarginalsQuantum

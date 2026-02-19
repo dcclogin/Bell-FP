@@ -1,9 +1,5 @@
 module CHSH.PR where
 
--- PR box: jointAB may depend on both settings.
--- This preserves parameter independence at the level of marginals
--- (no-signaling) but violates outcome independence / factorization.
-
 import CHSH.Util
 import CHSH.Experiment
 import CHSH.NoSignaling
@@ -13,14 +9,17 @@ import Control.Monad.Reader (ReaderT(..))
 import System.Random (randomRIO)
 
 ------------------------------------------------------------
--- PR trial model
+-- PR box: a hypothetical no-signaling resource that achieves 
+-- the algebraic maximum CHSH value of 4. It is defined 
+-- by the constraint:
+--   x ⊕ y = a ∧ b
+-- where x,y are the outputs for Alice and Bob, and a,b are 
+-- their respective inputs (settings). The PR box is not 
+-- physically realizable, but serves as a useful theoretical 
+-- tool for understanding the limits of nonlocal correlations.
 
 newtype PR a = PR { unPR :: IO a }
   deriving newtype (Functor, Applicative, Monad, MonadIO)
-
--- Membrane: embed PR trials into Exp IO; ignore the step index.
-runTrialPR :: RunTrial IO PR
-runTrialPR (PR ioa) = ReaderT (\_ -> ioa)
 
 instance TrialModel PR where
   -- Local marginals are uniform; defined for completeness.
@@ -37,6 +36,13 @@ instance TrialModel PR where
         y = xor x c
     pure (bitOut x, bitOut y)
 
+
+------------------------------------------------------------
+-- Membrane: embed PR trials into Exp IO; ignore the step index.
+
+runTrialPR :: RunTrial IO PR
+runTrialPR (PR ioa) = ReaderT (\_ -> ioa)
+
 ------------------------------------------------------------
 -- Tests
 
@@ -47,9 +53,11 @@ testPR_fixed = chsh 20000 fixedSchedule runTrialPR
 testPR_random :: IO Double
 testPR_random = chsh 20000 randomScheduleIO runTrialPR
 
--- Reuse the generic no-signaling checker.
+------------------------------------------------------------
+-- No-signaling checks
+
 noSignalingPR :: IO (Bool, String)
 noSignalingPR = noSignalingReport 20000 0.02 runTrialPR
 
-testNoSignalPR :: IO ()
-testNoSignalPR = prettyReport =<< noSignalingPR
+noSignalingPR_print :: IO ()
+noSignalingPR_print = prettyReport =<< noSignalingPR

@@ -9,7 +9,11 @@ import Control.Monad.Identity
 import System.Random (randomRIO)
 
 ------------------------------------------------------------
--- Local Hidden Variables 
+-- Local Hidden Variables (LHV) are a class of trial models 
+-- where the outcomes are determined by a shared random variable λ, 
+-- which is sampled at the start of each trial and then determines 
+-- the outcomes for all settings. This is a common class of models 
+-- considered in discussions of Bell's theorem.
 
 data Lambda = Lambda
   { a0 :: Outcome
@@ -86,13 +90,17 @@ biasedPlus2IO p _ = do
   pure $ if u < p then lambdaAllPlus else lambdaAntiAll
 
 ------------------------------------------------------------
--- Example tests
+-- Membrane: embed an LHV trial into the experiment monad Exp e, 
+-- by sampling a λ for each trial using a provided sampler.
 
 runTrialLHV :: Monad e => Sampler e -> RunTrial e LHV
 runTrialLHV sampleLam (LHV r) =
   ReaderT $ \i -> do
     lam <- sampleLam i
     pure (runReader r lam)
+
+------------------------------------------------------------
+-- CHSH tests
 
 lhvCHSHId :: Int -> Sampler Identity -> Double
 lhvCHSHId n samp =
@@ -127,6 +135,11 @@ testLHV_bias_blocks_7of8 =
 testLHV_biasIO :: Double -> IO Double
 testLHV_biasIO p = lhvCHSHIO 200000 (biasedPlus2IO p)
 
-noSignalingLHV_uniform :: IO () 
-noSignalingLHV_uniform = prettyReport $ runIdentity $ 
-   noSignalingReport 20000 0.00 (runTrialLHV uniformAll)
+------------------------------------------------------------
+-- No-signaling checks
+
+noSignalingLHV_uniform :: IO (Bool, String)
+noSignalingLHV_uniform = noSignalingReport 20000 0.02 (runTrialLHV uniformAll)
+
+noSignalingLHV_uniform_print :: IO () 
+noSignalingLHV_uniform_print = prettyReport =<< noSignalingLHV_uniform

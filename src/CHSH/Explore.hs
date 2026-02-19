@@ -8,24 +8,34 @@ import Control.Monad.State.Strict
 import Control.Monad.Reader
 
 ------------------------------------------------------------
+-- This module corresponds to Section 2 of the paper, 
+-- where we explore
+-- (1) boxes as pure functions (Identity monad).
+-- (2) boxes as shared state (State monad).
+-- (3) a scheduler-induced loophole (Clocked).
+
+------------------------------------------------------------
 -- Identity monad with fixed outcomes
 -- CHSH = 2
 
 instance TrialModel Identity where
-  localA a = if a == A0 then pure Plus else pure Minus
-  localB b = if b == B0 then pure Minus else pure Plus
+  localA _ = pure Plus
+  localB _ = pure Plus
 
--- Trial is pure Identity inside any experiment monad
-liftIdentity :: Applicative e => RunTrial e Identity
-liftIdentity ta = ReaderT (\_ -> pure (runIdentity ta))
+chshId :: Int
+chshId = runIdentity $ do
+  v00 <- val A0 B0
+  v01 <- val A0 B1
+  v10 <- val A1 B0
+  v11 <- val A1 B1
+  pure $ v00 + v01 + v10 - v11
+    where val a b = do
+            xy <- jointAB a b
+            pure (trialValue xy)
 
-test1_fixed :: Double
-test1_fixed = runIdentity (chsh 20000 fixedSchedule liftIdentity)
--- expect 2.0 exactly (deterministic)
+-- ghci> chshId
+-- 2
 
-test1_random :: IO Double
-test1_random = chsh 20000 randomScheduleIO liftIdentity
--- expect ~2.0
 
 ------------------------------------------------------------
 -- Signaling model (within-trial communication)
@@ -46,15 +56,23 @@ instance TrialModel (State Shared) where
       (Just A1, B1) -> Plus
       _             -> Minus
 
-runTrialState :: RunTrial Identity (State Shared)
-runTrialState t = ReaderT (\_ -> Identity (evalState t (Shared Nothing)))
+chshST :: Int
+chshST = evalState
+  (do v00 <- val A0 B0
+      v01 <- val A0 B1
+      v10 <- val A1 B0
+      v11 <- val A1 B1
+      pure $ v00 + v01 + v10 - v11)
+  (Shared Nothing)
+    where val a b = do xy <- jointAB a b; pure (trialValue xy)
 
-test2_fixed :: Double
-test2_fixed = runIdentity (chsh 20000 fixedSchedule runTrialState) 
--- ~4.0
+-- ghci> chshST
+-- 4
+
 
 ------------------------------------------------------------
--- Cross-trial loophole: trial can read a shared clock (step index)
+-- A schedule-induced, cross-trial loophole: 
+-- trial can read a shared clock (step index)
 
 newtype Clocked a = Clocked { unClocked :: Reader Int a }
   deriving (Functor, Applicative, Monad, MonadReader Int)
@@ -65,28 +83,21 @@ instance TrialModel Clocked where
     i <- ask
     pure $ if i `mod` 4 == 3 then Minus else Plus
 
--- Loophole open: reveal the clock to the trial (polymorphic)
-runTrialClockLoose :: Applicative e => RunTrial e Clocked
-runTrialClockLoose (Clocked r) = ReaderT (\i -> pure (runReader r i))
 
--- Loophole closed: hide the clock (always run trial at i = 0) (polymorphic)
-runTrialClockTight :: Applicative e => RunTrial e Clocked
-runTrialClockTight (Clocked r) = ReaderT (\_ -> pure (runReader r 0))
+runTrialCI, runTrialCZ :: Applicative e => RunTrial e Clocked
+runTrialCI (Clocked r) = ReaderT (\i -> pure (runReader r i))
+runTrialCZ (Clocked r) = ReaderT (\_ -> pure (runReader r 0))
 
-test3_loophole_open :: Double
-test3_loophole_open =
-  runIdentity (chsh 20000 fixedSchedule runTrialClockLoose)
+test3CI, test3CZ :: Double
+test3CI = runIdentity (chsh 20000 fixedSchedule runTrialCI)
+test3CZ = runIdentity (chsh 20000 fixedSchedule runTrialCZ)
 
-test3_loophole_closed :: Double
-test3_loophole_closed =
-  runIdentity (chsh 20000 fixedSchedule runTrialClockTight)
+test3RCI, test3RCZ :: IO Double
+test3RCI = chsh 20000 randomScheduleIO runTrialCI
+test3RCZ = chsh 20000 randomScheduleIO runTrialCZ
 
-test3_random_loophole_open :: IO Double
-test3_random_loophole_open =
-  chsh 20000 randomScheduleIO runTrialClockLoose
-
-test3_random_loophole_closed :: IO Double
-test3_random_loophole_closed =
-  chsh 20000 randomScheduleIO runTrialClockTight
+-- expect 4 results to be ~1.0, ~2.0, ~2.0, and ~4.0, in some order
+-- revealed in Clocked.hs test3* functions
 
 ------------------------------------------------------------
+

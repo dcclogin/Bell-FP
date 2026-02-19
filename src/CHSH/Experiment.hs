@@ -55,7 +55,9 @@ randomScheduleIO = do
   rb <- liftIO $ randomRIO (0 :: Int, 1)
   pure (if ra == 0 then A0 else A1, if rb == 0 then B0 else B1)
 
--- CHSH correlation
+------------------------------------------------------------
+-- calculating the average CHSH correlation value 
+-- from a trial model and schedule
 
 chsh :: (Monad e, TrialModel t)
      => Int -> Schedule e -> RunTrial e t -> e Double
@@ -69,52 +71,3 @@ chsh n sched runTrial =
       pure $ case (a,b) of
         (A1,B1) -> -v
         _       ->  v
-
-runTrialIdentity :: Monad e => RunTrial e Identity
-runTrialIdentity ta = pure (runIdentity ta)
-
-{--
-
-instance TrialModel Identity where
-  localA _ = pure Plus
-  localB _ = pure Plus
-
-chshId :: Int
-chshId = runIdentity $ do
-  v00 <- val A0 B0
-  v01 <- val A0 B1
-  v10 <- val A1 B0
-  v11 <- val A1 B1
-  pure $ v00 + v01 + v10 - v11
-    where val a b = do
-            xy <- jointAB a b
-            pure (trialValue xy)
-
---
-
-data Shared = Shared { lastASetting :: Maybe ASetting }
-
-instance TrialModel (State Shared) where
-  localA a = do
-    modify (\s -> s { lastASetting = Just a })
-    pure Minus
-  localB b = do
-    ma <- gets lastASetting
-    pure $ case (ma, b) of
-      (Just A1, B1) -> Plus
-      _             -> Minus
-
-chshST :: Int
-chshST = evalState
-  (do v00 <- val A0 B0
-      v01 <- val A0 B1
-      v10 <- val A1 B0
-      v11 <- val A1 B1
-      pure $ v00 + v01 + v10 - v11)
-  (Shared Nothing)
-    where val a b = do
-            xy <- jointAB a b
-            pure (trialValue xy)
-
---}
-------------------------------------------------------------
