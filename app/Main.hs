@@ -7,5 +7,5 @@ import qualified CHSH.PRState as CHSH_SHV
 
 main :: IO ()
 main = do
-    CHSH_SHV.testPR_StateHV_uniform_random >>= print
-    CHSH_SHV.noSignalingPR_StateHV_print
+    CHSH_SHV.testPRHiddenState_uniform_random >>= print
+    CHSH_SHV.noSignalingPRHiddenState_print
