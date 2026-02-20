@@ -1,7 +1,5 @@
 module Main (main) where
 
-import CHSH.Identity
-import CHSH.Shared
 import CHSH.LHV
 import CHSH.Superdet
 import CHSH.Quantum
@@ -85,12 +83,12 @@ models =
 
 
 computeCHSH :: Config -> IO Double
-computeCHSH (model, mSampler, scheduler) =
+computeCHSH (model, sampler, scheduler) =
   case model of
 
     ------------------------------------------------
     LHVM ->
-      case (mSampler, scheduler) of
+      case (sampler, scheduler) of
         (Just Uniform, Just Fixed)  -> pure testLHV_uniform_fixed
         (Just Uniform, Just Random) -> testLHV_uniform_random
         (Just Plus2,  Just Fixed)   -> pure testLHV_plus2
@@ -99,7 +97,7 @@ computeCHSH (model, mSampler, scheduler) =
 
     ------------------------------------------------
     SuperdetM ->
-      case (mSampler, scheduler) of
+      case (sampler, scheduler) of
         (Just BadIllegal, Just Fixed)  -> pure testSuperdet_fixed
         (Just BadIllegal, Just Random) -> testSuperdet_random
         (Just BadLegal,  Just Fixed)   -> pure testSuperdet_control
@@ -110,16 +108,18 @@ computeCHSH (model, mSampler, scheduler) =
       case scheduler of
         Just Fixed  -> testQuantum_fixed
         Just Random -> testQuantum_random
+        _ -> pure 0
 
     ------------------------------------------------
     PRM ->
       case scheduler of
         Just Fixed  -> testPR_fixed
         Just Random -> testPR_random
+        _ -> pure 0
 
     ------------------------------------------------
     PRHiddenM ->
-      case (mSampler, scheduler) of
+      case (sampler, scheduler) of
         (Just Uniform, Just Fixed)  -> testPRHiddenState_uniform_fixed
         (Just Uniform, Just Random) -> testPRHiddenState_uniform_random
         _ -> pure 0

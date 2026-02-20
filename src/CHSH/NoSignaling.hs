@@ -7,6 +7,11 @@ import Data.List (intercalate)
 import Control.Monad.Reader (runReaderT)
 
 ------------------------------------------------------------
+-- Helper programs that check the no-signaling conditions 
+-- given a trial model.
+
+
+------------------------------------------------------------
 -- Estimators
 
 -- Run n trials at fixed settings (a,b), returning the list of outcomes.

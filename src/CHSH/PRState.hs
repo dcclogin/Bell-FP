@@ -7,9 +7,7 @@ import CHSH.LHV (Lambda(..), Sampler, uniformAll)
 
 import Control.Monad.State
 import Control.Monad.Reader
-import Control.Monad.Identity
 import Control.Applicative
-import System.Random (randomRIO)
 
 ------------------------------------------------------------
 -- A nonlocal hidden-variable model of the PR box.

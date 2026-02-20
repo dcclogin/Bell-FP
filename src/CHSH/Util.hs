@@ -2,6 +2,7 @@ module CHSH.Util where
 
 import System.Random (randomRIO)
 
+------------------------------------------------------------
 -- Outcomes and settings
 
 -- We have an experiment with the following ingredients:

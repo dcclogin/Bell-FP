@@ -60,5 +60,39 @@ You can either
 - enter `Explore.hs` and run 3 tiny examples one by one, then navigate to other models listed above; or
 - run all models (CHSH tests and no-signaling checks) at once using the command `cabal run`.
 
+## The Demo
+
+You will see two tables as below after properly `build` and `run`.
+
+```
+CHSH Values
+--------------------------------------------------------
+Model               Sampler        Scheduler   CHSH
+--------------------------------------------------------
+LHV                 uniform        fixed       0.0
+LHV                 uniform        random      4.4e-4
+LHV                 plus2          fixed       2.0
+LHV                 minus2         fixed       -2.0
+Superdet            bad illegal    fixed       4.0
+Superdet            bad illegal    random      4.0
+Superdet            bad legal      fixed       2.0
+Quantum             -              fixed       2.8192
+Quantum             -              random      2.83052
+PR box              -              fixed       4.0
+PR box              -              random      4.0
+PR hidden state     uniform        fixed       4.0
+PR hidden state     uniform        random      4.0
+
+No-Signaling Check
+---------------------------
+Model               NS
+---------------------------
+LHV                 ✓
+Superdet            ✓
+Quantum             ✓
+PR box              ✓
+PR hidden state     ✓
+```
+
 
 
