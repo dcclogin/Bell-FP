@@ -4,68 +4,164 @@ import CHSH.Util
 import CHSH.Experiment
 import CHSH.NoSignaling
 
+import Control.Applicative (liftA2)
 import Control.Monad.IO.Class
 import Control.Monad.Reader (ReaderT(..))
+import Control.Monad.State (MonadState, StateT, evalStateT, get, modify)
 import System.Random (randomRIO)
 
 ------------------------------------------------------------
--- Quantum trial model (sampling from the correct joint distribution)
--- This model achieves the Tsirelson bound of 2√2 ≈ 2.8284 by 
--- overriding jointAB with a sampling procedure that depends on 
--- both settings, but keeps the no-signaling condition satisfied.
+-- Quantum trial model, as a quantum computing textbook writes it: the
+-- state of two qubits is a vector of four amplitudes, one for each of
+-- the basis states |00>, |01>, |10> and |11>; a measurement is a pair
+-- of projectors; and the Born rule gives the probability of each
+-- outcome and the state it leaves. Alice holds the first qubit, Bob the
+-- second. Real amplitudes suffice for the states and measurements here.
+-- (Before: pairs of polarization-entangled photons, with polarizers at
+-- chosen angles, Malus's law and the collapse of the pair.)
 
-newtype Quantum a = Quantum { unQuantum :: IO a }
-  deriving newtype (Functor, Applicative, Monad, MonadIO)
+type Vector = [Double]
+type Matrix = [[Double]]
 
--- Membrane: embed a Quantum trial into the experiment monad Exp IO.
--- The experiment has a step index, but this model does not use it.
-runTrialQuantum :: RunTrial IO Quantum
-runTrialQuantum (Quantum ioa) = ReaderT (\_ -> ioa)
+-- Dirac's brackets, as operators: u <| v is the inner product <u|v>,
+-- m |> v the matrix m applied to the ket |v>, and m >< n the tensor
+-- (Kronecker) product of two matrices, which the paper prints as a
+-- circled times. Since |> binds tighter than <|, psi <| p |> psi is
+-- <psi|P|psi>, and >< binds tighter still.
+infixr 6 <|
+infixr 7 |>
+infixl 8 ><
+
+(<|) :: Vector -> Vector -> Double
+u <| v = sum (zipWith (*) u v)
+
+(|>) :: Matrix -> Vector -> Vector
+m |> v = map (<| v) m
+
+(><) :: Matrix -> Matrix -> Matrix
+m >< n = [ concat [ map (a *) row | a <- mrow ] | mrow <- m, row <- n ]
+
+add, sub :: Matrix -> Matrix -> Matrix
+add = zipWith (zipWith (+))
+sub = zipWith (zipWith (-))
+
+scale :: Double -> Matrix -> Matrix
+scale c = map (map (c *))
+
+normalize :: Vector -> Vector
+normalize v = map (/ sqrt (v <| v)) v
 
 ------------------------------------------------------------
--- Angles that maximize CHSH for E(a,b)=cos(2(a-b))
--- A0 = 0, A1 = π/4
--- B0 = π/8, B1 = -π/8
---
--- Then CHSH = 2√2 (in expectation).
+-- Measurements. A setting measures an observable whose eigenvalues
+-- are +1 (Plus) and -1 (Minus). Alice measures Z or X, Bob
+-- (Z + X)/sqrt 2 or (Z - X)/sqrt 2: the observables that maximize the
+-- CHSH value of the state |00> + |11> below.
 
-thetaA :: ASetting -> Double
-thetaA A0 = 0
-thetaA A1 = pi / 4
+identity, pauliZ, pauliX :: Matrix
+identity = [[1, 0], [0, 1]]
+pauliZ   = [[1, 0], [0, -1]]
+pauliX   = [[0, 1], [1, 0]]
 
-thetaB :: BSetting -> Double
-thetaB B0 = pi / 8
-thetaB B1 = -pi / 8
+observableA :: ASetting -> Matrix
+observableA A0 = pauliZ
+observableA A1 = pauliX
 
--- Correlation for a |Φ+>-style polarization model:
--- E = cos(2(θA - θB))
-corr :: ASetting -> BSetting -> Double
-corr a b = cos (2 * (thetaA a - thetaB b))
+observableB :: BSetting -> Matrix
+observableB B0 = scale (1 / sqrt 2) (add pauliZ pauliX)
+observableB B1 = scale (1 / sqrt 2) (sub pauliZ pauliX)
 
--- Given correlation E in [-1,1], generate (A,B) with:
---   P(A=B)   = (1+E)/2
---   P(A≠B)   = (1-E)/2
--- and uniform marginals for both parties.
---
--- Why marginals stay uniform: base is uniform; we either keep it or flip it,
--- so each side remains unbiased regardless of E.
-samplePairWithCorr :: Double -> IO (Outcome, Outcome)
-samplePairWithCorr e = do
-  base <- randomOutcome
-  u    <- randomRIO (0.0, 1.0 :: Double)
-  let pSame = (1 + e) / 2
-  if u < pSame
-    then pure (base, base)
-    else pure (base, flipOutcome base)
+-- The projector onto the eigenvalue of an outcome: (I + O)/2 for Plus,
+-- (I - O)/2 for Minus.
+projector :: Matrix -> Outcome -> Matrix
+projector o Plus  = scale (1 / 2) (add identity o)
+projector o Minus = scale (1 / 2) (sub identity o)
+
+-- The same projectors on the pair: Alice's act on the first qubit,
+-- P (x) I, and Bob's on the second, I (x) P.
+measA :: ASetting -> Outcome -> Matrix
+measA a x = projector (observableA a) x >< identity
+
+measB :: BSetting -> Outcome -> Matrix
+measB b y = identity >< projector (observableB b) y
+
+-- The Born rule: the outcome whose projector is P has probability
+-- <psi|P|psi>, and collapses the state to P|psi>, normalized.
+probability :: Matrix -> Vector -> Double
+probability p psi = psi <| p |> psi
+
+collapse :: Matrix -> Vector -> Vector
+collapse p psi = normalize (p |> psi)
+
+-- Plus with probability p
+coin :: Double -> IO Outcome
+coin p = do
+  u <- randomRIO (0, 1)
+  pure (if u < p then Plus else Minus)
+
+------------------------------------------------------------
+-- A source of pairs prepares a state of the two qubits.
+
+type Source = Vector
+
+-- |00> + |11>, normalized: the maximally entangled state of two qubits
+maximallyEntangled :: Source
+maximallyEntangled = normalize [1, 0, 0, 1]
+
+-- cos theta |00> + sin theta |11>: maximallyEntangled at theta = pi/4,
+-- the product state |00> at theta = 0
+entangled :: Double -> Source
+entangled theta = [cos theta, 0, 0, sin theta]
+
+-- The correlation of a context, <psi| A (x) B |psi>: the average of the
+-- product of the two outcomes, which the CHSH value combines.
+correlation :: Source -> ASetting -> BSetting -> Double
+correlation psi a b = psi <| observableA a >< observableB b |> psi
+
+------------------------------------------------------------
+-- The trial monad holds the state of the pair, which a measurement
+-- collapses, and flips coins in IO.
+
+newtype Quantum a = Quantum { unQuantum :: StateT Vector IO a }
+  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadState Vector)
 
 instance TrialModel Quantum where
-  -- Unused once jointAB is overridden, but harmless to define.
-  localA _ = Quantum randomOutcome
-  localB _ = Quantum randomOutcome
+  -- each party measures its own qubit of the pair, and leaves the state
+  -- as it is
+  localA a = do
+    psi <- get
+    liftIO (coin (probability (measA a Plus) psi))
+  localB b = do
+    psi <- get
+    liftIO (coin (probability (measB b Plus) psi))
 
-  -- Correlated joint sampling depends on both settings,
-  -- but keeps marginals uniform (no-signaling).
-  jointAB a b = Quantum $ samplePairWithCorr (corr a b)
+  -- the two boxes in turn, each collapsing the state that the other reads
+  jointAB a b = liftA2 (,) (nonlocalA a) (nonlocalB b)
+
+-- Dual to each other: a box answers as on its own, and then collapses
+-- the state to what its outcome leaves. (In jointAB nothing reads the
+-- state after nonlocalB. The two measurements commute, so either box
+-- could go first, with the same joint distribution.)
+nonlocalA :: ASetting -> Quantum Outcome
+nonlocalA a = do
+  x <- localA a
+  modify (collapse (measA a x))
+  pure x
+
+nonlocalB :: BSetting -> Quantum Outcome
+nonlocalB b = do
+  y <- localB b
+  modify (collapse (measB b y))
+  pure y
+
+-- Membrane: embed a Quantum trial into the experiment monad Exp IO. A
+-- trial starts from a pair in the given state, and the state it ends in
+-- ends with it. The experiment has a step index, but this model does
+-- not use it.
+runTrialSource :: Source -> RunTrial IO Quantum
+runTrialSource psi (Quantum m) = ReaderT (\_ -> evalStateT m psi)
+
+runTrialQuantum :: RunTrial IO Quantum
+runTrialQuantum = runTrialSource maximallyEntangled
 
 ------------------------------------------------------------
 -- CHSH tests
@@ -79,44 +175,21 @@ testQuantum_random :: IO Double
 testQuantum_random = chsh 200000 randomScheduleIO runTrialQuantum
 
 ------------------------------------------------------------
--- No-signaling checks
+-- Reports: the CHSH value and the no-signaling verdict of the same
+-- run; the table also shows every marginal.
 
-noSignalingQuantum :: IO (Bool, String)
-noSignalingQuantum = noSignalingReport 20000 0.02 runTrialQuantum
+reportQuantum_fixed :: IO Report
+reportQuantum_fixed = seeded 5 (chshReport 80000 fixedSchedule runTrialQuantum)
+-- CHSH ~2.83, no-signaling, every marginal ~1/2
 
--- Optional: stronger-looking but redundant with noSignalingReport.
-uniformMarginalsQuantum :: IO (Bool, String)
-uniformMarginalsQuantum = do
-  let n   = 20000
-      eps = 0.03
+reportQuantum_random :: IO Report
+reportQuantum_random = seeded 6 (chshReport 80000 randomScheduleIO runTrialQuantum)
+-- CHSH ~2.83, no-signaling
 
-  pA00 <- pAPlus n runTrialQuantum A0 B0
-  pA01 <- pAPlus n runTrialQuantum A0 B1
-  pA10 <- pAPlus n runTrialQuantum A1 B0
-  pA11 <- pAPlus n runTrialQuantum A1 B1
-
-  pB00 <- pBPlus n runTrialQuantum A0 B0
-  pB10 <- pBPlus n runTrialQuantum A1 B0
-  pB01 <- pBPlus n runTrialQuantum A0 B1
-  pB11 <- pBPlus n runTrialQuantum A1 B1
-
-  let closeHalf p = abs (p - 0.5) <= eps
-      ok = and (map closeHalf [pA00,pA01,pA10,pA11,pB00,pB01,pB10,pB11])
-
-      msg = unlines
-        [ "Uniform marginal check (should be ~0.5)"
-        , "--------------------------------------"
-        , "Alice: P(+|A0,B0)=" ++ show pA00 ++ "  P(+|A0,B1)=" ++ show pA01
-        , "       P(+|A1,B0)=" ++ show pA10 ++ "  P(+|A1,B1)=" ++ show pA11
-        , "Bob:   P(+|A0,B0)=" ++ show pB00 ++ "  P(+|A1,B0)=" ++ show pB10
-        , "       P(+|A0,B1)=" ++ show pB01 ++ "  P(+|A1,B1)=" ++ show pB11
-        , "eps = " ++ show eps ++ "   n = " ++ show n
-        ]
-
-  pure (ok, msg)
-
-noSignalingQuantum_print :: IO ()
-noSignalingQuantum_print = prettyReport =<< noSignalingQuantum
-
-uniformQuantum_print :: IO ()
-uniformQuantum_print = prettyReport =<< uniformMarginalsQuantum
+-- A partially entangled state, theta = pi/8. Each qubit on its own is
+-- now more likely 0 than 1, so its marginal depends on the observable
+-- measured; it still does not depend on the other party's.
+reportQuantum_partial :: IO Report
+reportQuantum_partial = seeded 14 (chshReport 80000 fixedSchedule (runTrialSource (entangled (pi / 8))))
+-- CHSH ~1 + sqrt 2 ~ 2.41, no-signaling; P(x=+) ~0.854 at A0 and ~0.5
+-- at A1, P(y=+) ~0.75 at both of Bob's settings

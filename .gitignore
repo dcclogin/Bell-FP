@@ -3,3 +3,6 @@
 dist-newstyle/
 dist/
 *~
+paper/src-ascii/
+paper/*.log
+paper/*.blg

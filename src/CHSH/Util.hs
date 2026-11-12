@@ -14,13 +14,13 @@ import System.Random (randomRIO)
 
 -- Each party has two possible settings (inputs to their black box)
 
-data ASetting = A0 | A1 deriving Eq
-data BSetting = B0 | B1 deriving Eq
+data ASetting = A0 | A1 deriving (Eq, Enum, Bounded)
+data BSetting = B0 | B1 deriving (Eq, Enum, Bounded)
 
 -- A CHSH trial with settings (a,b) produces a pair (x,y).
 -- The score is +/-1 indicating agreement or disagreement
 
-data Outcome = Minus | Plus deriving Eq
+data Outcome = Plus | Minus deriving (Eq, Enum, Bounded)
 
 -- Sample an unbiased sign (±1) as Outcome
 randomOutcome :: IO Outcome
@@ -35,6 +35,11 @@ flipOutcome Plus  = Minus
 trialValue :: (Outcome, Outcome) -> Int
 trialValue (x, y) | x == y    = 1
                   | otherwise = -1
+
+-- The CHSH expression of a number given per context: the score of a
+-- single trial, or the correlator of a table (CHSH.Experiment)
+chshOf :: Num r => (ASetting -> BSetting -> r) -> r
+chshOf v = v A0 B0 + v A0 B1 + v A1 B0 - v A1 B1
 
 outBit :: Outcome -> Int
 outBit Plus  = 0
@@ -56,10 +61,9 @@ xor u v = (u + v) `mod` 2
 
 -- Sampling
 
-mcAverageIx :: Monad e => Int -> (Int -> e Int) -> e Double
-mcAverageIx n sampleAt = do
-  xs <- mapM sampleAt [0 .. n-1]
-  pure (fromIntegral (sum xs) / fromIntegral n)
+-- (mcAverageIx, the average of the signed scores of all trials, is
+-- gone: the CHSH value is now read off the empirical model of the
+-- run, context by context. See CHSH.Experiment.)
 
 uniformCycle :: Applicative e => [a] -> Int -> e a
 uniformCycle xs i = pure (xs !! (i `mod` length xs))

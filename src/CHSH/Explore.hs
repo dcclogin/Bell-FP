@@ -23,15 +23,7 @@ instance TrialModel Identity where
   localB _ = pure Plus
 
 chshId :: Int
-chshId = runIdentity $ do
-  v00 <- val A0 B0
-  v01 <- val A0 B1
-  v10 <- val A1 B0
-  v11 <- val A1 B1
-  pure $ v00 + v01 + v10 - v11
-    where val a b = do
-            xy <- jointAB a b
-            pure (trialValue xy)
+chshId = chshOf (\a b -> trialValue (runIdentity (jointAB a b)))
 
 -- ghci> chshId
 -- 2
@@ -57,14 +49,7 @@ instance TrialModel (State Shared) where
       _             -> Minus
 
 chshST :: Int
-chshST = evalState
-  (do v00 <- val A0 B0
-      v01 <- val A0 B1
-      v10 <- val A1 B0
-      v11 <- val A1 B1
-      pure $ v00 + v01 + v10 - v11)
-  (Shared Nothing)
-    where val a b = do xy <- jointAB a b; pure (trialValue xy)
+chshST = chshOf (\a b -> trialValue (evalState (jointAB a b) (Shared Nothing)))
 
 -- ghci> chshST
 -- 4

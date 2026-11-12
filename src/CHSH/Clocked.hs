@@ -2,6 +2,7 @@ module CHSH.Clocked where
 
 import CHSH.Util
 import CHSH.Experiment
+import CHSH.NoSignaling
 import Control.Monad.Reader
 import Control.Monad.Identity
 
@@ -45,5 +46,32 @@ test3_random_loophole_closed :: IO Double
 test3_random_loophole_closed =
   chsh 20000 randomScheduleIO runTrialClockTight
 -- around 2.0
+
+------------------------------------------------------------
+-- Reports: the same four runs, with their no-signaling verdicts.
+-- (Before, the clocked boxes were never checked; a separate check
+-- at fixed settings would have passed them, since Bob then answers
+-- Minus on every fourth step whatever the settings.)
+
+report3_loophole_open :: Report
+report3_loophole_open =
+  runIdentity (chshReport 80000 fixedSchedule runTrialClockLoose)
+-- CHSH 4.0; Bob answers Minus exactly in context (A1,B1), so his
+-- marginal at B1 depends on Alice's setting
+
+report3_loophole_closed :: Report
+report3_loophole_closed =
+  runIdentity (chshReport 80000 fixedSchedule runTrialClockTight)
+-- CHSH 2.0, no-signaling
+
+report3_random_loophole_open :: IO Report
+report3_random_loophole_open =
+  seeded 2 (chshReport 80000 randomScheduleIO runTrialClockLoose)
+-- CHSH ~1.0, no-signaling: the clock is independent of the settings
+
+report3_random_loophole_closed :: IO Report
+report3_random_loophole_closed =
+  seeded 3 (chshReport 80000 randomScheduleIO runTrialClockTight)
+-- CHSH 2.0, no-signaling
 
 ------------------------------------------------------------

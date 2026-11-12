@@ -1,0 +1,8 @@
+-- The paper's data generator, built against the package
+-- (two levels up) without changing it.
+packages: . ../..
+
+-- The runs in IO draw from the StdGen of the random library. These are
+-- the versions that wrote generated/: another version may draw
+-- differently from the same seed, and change the paper's numbers.
+constraints: random ==1.3.1, splitmix ==0.1.2

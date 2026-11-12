@@ -2,6 +2,7 @@ module CHSH.Shared where
 
 import CHSH.Util
 import CHSH.Experiment
+import CHSH.NoSignaling
 import Control.Monad.State.Strict
 import Control.Monad.Reader
 import Control.Monad.Identity
@@ -26,21 +27,21 @@ instance TrialModel (State Shared) where
       _             -> Minus
 
 chshST :: Int
-chshST = evalState
-  (do v00 <- val A0 B0
-      v01 <- val A0 B1
-      v10 <- val A1 B0
-      v11 <- val A1 B1
-      pure $ v00 + v01 + v10 - v11)
-  (Shared Nothing)
-    where val a b = do
-            xy <- jointAB a b
-            pure (trialValue xy)
+chshST = chshOf (\a b -> trialValue (evalState (jointAB a b) (Shared Nothing)))
 
 
 runTrialState :: RunTrial Identity (State Shared)
 runTrialState t = ReaderT (\_ -> Identity (evalState t (Shared Nothing)))
 
 test2_fixed :: Double
-test2_fixed = runIdentity (chsh 20000 fixedSchedule runTrialState) 
--- ~4.0
+test2_fixed = runIdentity (chsh 20000 fixedSchedule runTrialState)
+-- 4.0
+
+------------------------------------------------------------
+-- Report: the run signals, as intended. (Before, this model was
+-- never shown to the no-signaling checker; it is the negative
+-- control the demo lacked.)
+
+reportShared_fixed :: Report
+reportShared_fixed = runIdentity (chshReport 80000 fixedSchedule runTrialState)
+-- CHSH 4.0; Bob's marginal at B1 depends on Alice's setting

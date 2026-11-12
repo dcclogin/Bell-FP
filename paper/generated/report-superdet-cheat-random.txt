@@ -1,0 +1,11 @@
+a   b   |  ++     +-     -+     --    | P(x=+) P(y=+)  trials
+A0  B0  | 1.000  0.000  0.000  0.000  | 1.000  1.000  19896
+A0  B1  | 1.000  0.000  0.000  0.000  | 1.000  1.000  20070
+A1  B0  | 1.000  0.000  0.000  0.000  | 1.000  1.000  19927
+A1  B1  | 0.000  1.000  0.000  0.000  | 1.000  0.000  20107
+CHSH = 4.0
+Alice at A0  1.000  vs  1.000   ok
+Alice at A1  1.000  vs  1.000   ok
+Bob at B0    1.000  vs  1.000   ok
+Bob at B1    1.000  vs  0.000   violated
+✗ No-signaling VIOLATED in this run: Bob at B1
